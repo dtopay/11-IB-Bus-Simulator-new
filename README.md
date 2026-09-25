@@ -8,7 +8,7 @@ This version adds a new driver system. You pick one of **nine drivers**. Each dr
 
 ## How to play
 
-1. Press **Start engines**, choose one of the 9 drivers, then one of the 6 buses. Drivers you don't pick are driven by bots.
+1. Press **Start engines**, choose one of the 9 drivers, then one of the 6 buses and one of the 4 circuits. Drivers you don't pick are driven by bots.
 2. Drive through the yellow bus stops to pick up students: 5 per stop, 6 stops per lap.
 3. Spend your students on your driver's ability with **Shift**. Abilities have **no cooldown**; only their student cost limits them. Ali is the exception: he eats his students and pays with his sweet meter instead.
 4. Finish first at Anka Bilim School. Races are 3, 6 or 10 laps against Easy, Normal or Hard rivals, or against your friends online (see below).
@@ -30,6 +30,19 @@ The race screen shows your students (or Ali's sweet meter), whether your ability
 
 On phones and tablets, on-screen buttons appear (ABILITY uses your ability). A game controller works too.
 
+## Circuits
+
+Pick the circuit on the bus screen (or press **T** there to switch). Every circuit has 6 bus stops per lap, grandstands at the start and the same rules.
+
+| Circuit | Length | What it is like |
+|---|---|---|
+| **Anka Bilim** | 2.23 km | City streets and a car park stage, to the finish at Anka Bilim School. |
+| **Eymir Lake** | 2.40 km | Fast sweepers around the lake, with sailing boats, and a tight hairpin at the far end. |
+| **Atakule** | 1.85 km | A street circuit at sunset: right-angle corners between tall buildings, around the Atakule tower. |
+| **Esenboğa Airport** | 2.50 km | The runway is an 800 m straight; hairpins at both ends and a taxiway that weaves past the terminal and parked planes. |
+
+Best laps are saved for every circuit and bus.
+
 ## Online races with friends
 
 Up to 6 friends can race together, each on their own phone or computer.
@@ -37,7 +50,7 @@ Up to 6 friends can race together, each on their own phone or computer.
 1. One of you presses **Race online** → **Create a room** and shares the 4-letter room code.
 2. Everybody else presses **Race online**, types the code and presses **Join**.
 3. In the lobby, everybody picks a driver and a bus. Each one can be taken by one player only.
-4. The host chooses the laps and the bots' level and presses **Start race**. Empty buses are driven by bots.
+4. The host chooses the circuit, the laps and the bots' level and presses **Start race**. Everybody's game switches to the host's circuit. Empty buses are driven by bots.
 
 Every ability works between players too: stuns, slowdowns, rain, Volkan's field, Ali's reaction check and bite, and Ada's leprechaun all reach your friends' screens. When the race is over, the host takes everybody back to the lobby for the next one.
 

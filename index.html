@@ -107,6 +107,8 @@ button:focus-visible,.seg button:focus-visible{outline:3px solid var(--yellow);o
 .seg{display:flex;gap:4px}
 .seg button{appearance:none;border:1px solid var(--line);background:transparent;cursor:pointer;padding:5px 12px;font-family:var(--display);font-weight:800;font-style:italic;text-transform:uppercase;font-size:14px;color:var(--ink-2)}
 .seg button[aria-pressed="true"]{background:var(--ink);color:#0b0e13;border-color:var(--ink)}
+.opt-track{flex-direction:column;align-items:stretch;gap:6px}.seg-track{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.seg-track button{padding:6px 8px}
+.sel-track{margin:0;font-size:13px;line-height:1.45;color:var(--ink-2);max-width:44ch}
 .sel-nav{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .arrow{appearance:none;border:1px solid var(--line);background:var(--panel);width:48px;height:48px;cursor:pointer;font-size:20px;display:grid;place-items:center}
 .arrow:hover{background:#2a3242}
@@ -492,8 +494,8 @@ body.touch .dash{bottom:auto;top:calc(max(16px,env(safe-area-inset-top,0px)) + 1
         <button class="btn" id="btnOnline">Race online</button>
         <button class="btn" id="btnAbout">About the sport</button>
       </div>
-      <p class="loadnote" id="loadNote">Building the Anka Bilim street circuit&hellip;</p>
-      <p class="title-foot" id="titleFoot">Pick one of nine drivers and one of six school buses. Pick up students at the yellow bus stops (5 per stop) and spend them on your driver's ability with <kbd>Shift</kbd>. <b>Race online</b> lets up to 6 friends race together, each on their own device.<br><kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> or <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> drive &middot; <kbd>Space</kbd> drift &middot; <kbd>Shift</kbd> ability &middot; <kbd>M</kbd> sound</p>
+      <p class="loadnote" id="loadNote">Building the circuit&hellip;</p>
+      <p class="title-foot" id="titleFoot">Pick one of nine drivers, one of six school buses and one of four circuits around Ankara. Pick up students at the yellow bus stops (5 per stop) and spend them on your driver's ability with <kbd>Shift</kbd>. <b>Race online</b> lets up to 6 friends race together, each on their own device.<br><kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> or <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> drive &middot; <kbd>Space</kbd> drift &middot; <kbd>Shift</kbd> ability &middot; <kbd>M</kbd> sound</p>
     </div>
   </section>
 
@@ -561,7 +563,9 @@ body.touch .dash{bottom:auto;top:calc(max(16px,env(safe-area-inset-top,0px)) + 1
         <div class="opts">
           <div class="opt"><span>Laps</span><div class="seg" id="optLaps"><button id="lap3" data-v="3">3</button><button id="lap6" data-v="6">6</button><button id="lap10" data-v="10">10</button></div></div>
           <div class="opt"><span>Rivals</span><div class="seg" id="optDiff"><button id="dif0" data-v="0">Easy</button><button id="dif1" data-v="1">Normal</button><button id="dif2" data-v="2">Hard</button></div></div>
+          <div class="opt opt-track"><span>Track</span><div class="seg seg-track" id="optTrack"></div></div>
         </div>
+        <p class="sel-track" id="sTrack"></p>
         <p class="sel-pb" id="sPB"></p>
         <div class="btn-row">
           <button class="btn primary" id="btnRace">Race &#9656;</button>
@@ -591,6 +595,7 @@ body.touch .dash{bottom:auto;top:calc(max(16px,env(safe-area-inset-top,0px)) + 1
           <div class="on-pick"><span class="eyebrow">Your driver</span><div class="on-drvs" id="onDrv"></div><p class="on-info" id="onDrvInfo"></p></div>
           <div class="on-pick"><span class="eyebrow">Your bus</span><div class="on-buses" id="onBus"></div></div>
           <div class="opts" id="onHostOpts">
+            <div class="opt opt-track"><span>Track</span><div class="seg seg-track" id="onTrack"></div></div>
             <div class="opt"><span>Laps</span><div class="seg" id="onLaps"><button data-v="3">3</button><button data-v="6">6</button><button data-v="10">10</button></div></div>
             <div class="opt"><span>Bots</span><div class="seg" id="onDiff"><button data-v="0">Easy</button><button data-v="1">Normal</button><button data-v="2">Hard</button></div></div>
           </div>
@@ -624,7 +629,7 @@ body.touch .dash{bottom:auto;top:calc(max(16px,env(safe-area-inset-top,0px)) + 1
   <section id="scrResults" class="screen scrim-full" hidden>
     <div class="sheet">
       <div class="sheet-head">
-        <div><div class="eyebrow">Anka Bilim Grand Prix &middot; Classification</div><h2 id="rTitle">Chequered flag</h2></div>
+        <div><div class="eyebrow" id="rEyebrow">Anka Bilim Grand Prix &middot; Classification</div><h2 id="rTitle">Chequered flag</h2></div>
         <span class="tab" id="rLaps">3 laps</span>
       </div>
       <div class="res-summary">

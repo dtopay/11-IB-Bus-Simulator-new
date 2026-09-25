@@ -74,11 +74,6 @@ function deriveStats(def) {
 const HW = 10, KERB = 1.4, WALL = 15.5;
 // lateral limits for a bus centre line: the walls (or barriers) on both sides
 function latLimits(s, d, out) { out.lo = -WALL; out.hi = WALL; return out; }
-const CTRL = [
-  [0, 0], [150, 0], [290, 0], [370, 25], [405, 100], [380, 180], [300, 215],
-  [225, 195], [165, 235], [150, 315], [195, 385], [170, 455], [95, 470], [25, 430],
-  [-55, 445], [-135, 418], [-215, 442], [-295, 405], [-330, 310], [-300, 220], [-335, 130], [-300, 45], [-160, 0]
-];
 function catmull(p0, p1, p2, p3, t) {
   const d = (p, q) => Math.pow(Math.hypot(q[0] - p[0], q[1] - p[1]), 0.5) || 1e-4;
   const t0 = 0, t1 = t0 + d(p0, p1), t2 = t1 + d(p1, p2), t3 = t2 + d(p2, p3);
@@ -88,7 +83,7 @@ function catmull(p0, p1, p2, p3, t) {
   const B1 = L(A1, A2, t0, t2), B2 = L(A2, A3, t1, t3);
   return L(B1, B2, t1, t2);
 }
-function buildTrack() {
+function buildTrack(CTRL) {
   const n = CTRL.length, dense = [];
   for (let i = 0; i < n; i++) {
     const p0 = CTRL[(i - 1 + n) % n], p1 = CTRL[i], p2 = CTRL[(i + 1) % n], p3 = CTRL[(i + 2) % n];
@@ -164,9 +159,9 @@ function fitText(g, t, x, y, maxW) { const w = g.measureText(t).width; if (w > m
 function rrect(g, x, y, w, h, r) { g.beginPath(); g.moveTo(x + r, y); g.lineTo(x + w - r, y); g.quadraticCurveTo(x + w, y, x + w, y + r); g.lineTo(x + w, y + h - r); g.quadraticCurveTo(x + w, y + h, x + w - r, y + h); g.lineTo(x + r, y + h); g.quadraticCurveTo(x, y + h, x, y + h - r); g.lineTo(x, y + r); g.quadraticCurveTo(x, y, x + r, y); g.closePath(); }
 function starPath(g, cx, cy, R, r, a0) { g.beginPath(); for (let i = 0; i < 10; i++) { const rad = i % 2 ? r : R, a = a0 + i * Math.PI / 5; g.lineTo(cx + Math.cos(a) * rad, cy + Math.sin(a) * rad); } g.closePath(); }
 
-function texAsphalt(parking) {
+function texAsphalt(parking, base) {
   const c = cv(512, 512), g = c.getContext('2d');
-  g.fillStyle = parking ? '#56595e' : '#43464b'; g.fillRect(0, 0, 512, 512);
+  g.fillStyle = base || (parking ? '#56595e' : '#43464b'); g.fillRect(0, 0, 512, 512);
   noiseFill(g, 512, 512, 30);
   const gr = g.createLinearGradient(0, 0, 512, 0);
   gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(0.32, 'rgba(0,0,0,.08)'); gr.addColorStop(0.5, 'rgba(0,0,0,.13)'); gr.addColorStop(0.68, 'rgba(0,0,0,.08)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
@@ -210,11 +205,11 @@ function texLot() {
   g.fillRect(0, 0, 512, 4); g.fillRect(0, 126, 512, 3); g.fillRect(0, 383, 512, 3);
   return tex(c, true);
 }
-function texAds() {
+function texAds(gp) {
   const c = cv(4096, 128), g = c.getContext('2d');
   const P = [
     { bg: '#e10600', fg: '#ffffff', t: 'SCHOOL BUS RACE', s: 86 },
-    { bg: '#f2f2f2', fg: '#101418', t: 'ANKA BİLİM GRAND PRIX', s: 74 },
+    { bg: '#f2f2f2', fg: '#101418', t: gp || 'ANKA BİLİM GRAND PRIX', s: 74 },
     { bg: '#ffc629', fg: '#111111', t: 'FUELED BY STUDENTS', s: 80 },
     { bg: '#12161f', fg: '#ffc629', t: 'OKUL SERVİSİ · ANKARA 2026', s: 64 },
   ];
@@ -271,6 +266,91 @@ function texBanner(text, bg, fg) {
   });
 }
 
+// =====================================================================
+//  CIRCUITS: each one is a closed loop of control points (metres, the
+//  start/finish line is the first point), plus where its grandstands,
+//  bus stops and gym spots stand and what the world around it looks like.
+//  Positions along the lap are in metres from the line (s); negative
+//  values count back from the line. side: -1 left, 1 right.
+// =====================================================================
+const TRACKS = [
+  {
+    id: 'anka', seed: 20260924, name: 'Anka Bilim', gp: 'Anka Bilim Grand Prix', short: 'Anka Bilim GP',
+    place: 'Ankara', paint: 'ANKA BİLİM', finishAt: 'Anka Bilim School', theme: 'city',
+    gpCaps: 'ANKA BİLİM GRAND PRIX', finishSign: 'ANKA BİLİM SCHOOL',
+    blurb: 'City streets and a car park stage, to the finish at Anka Bilim School.',
+    ctrl: [[0, 0], [150, 0], [290, 0], [370, 25], [405, 100], [380, 180], [300, 215], [225, 195], [165, 235], [150, 315], [195, 385], [170, 455], [95, 470], [25, 430], [-55, 445],
+      [-135, 418], [-215, 442], [-295, 405], [-330, 310], [-300, 220], [-335, 130], [-300, 45], [-160, 0]],
+    park: { maxX: -268 },   // the car park stage: the part of the loop west of x = -268
+    school: { s: 64, side: -1 },
+    stands: [
+      [-118, -12, -1, [['BUSES MAKE A BETTER TOMORROW ♥', '#ffffff', '#101418'], ['STUDENTS TODAY, CHAMPIONS TOMORROW', '#ffc629', '#111111'], ['SAME VEHICLES, BIGGER DREAMS ♥', '#ffffff', '#c3120c']]],
+      [118, 262, -1, [['LET THE BEST BUS WIN!', '#e10600', '#ffffff'], ['FUELED BY STUDENTS', '#ffffff', '#101418'], ['DIFFERENT ROUTES. SAME FUTURE.', '#ffc629', '#111111']]],
+      [-120, 40, 1, [['MORE THAN A RIDE — A COMMUNITY', '#ffffff', '#101418'], ['SAME ROADS. DIFFERENT LEGENDS.', '#101418', '#ffc629'], ['GO SULTAN GO!', '#7a2fd0', '#ffffff'], ['SPRINTER #2 ♥', '#00d2be', '#101418']]],
+      [92, 250, 1, [['ANKARA LOVES SCHOOL BUSES', '#ffffff', '#c3120c'], ['DUCATO FAN CLUB', '#d8141c', '#ffffff'], ['OKUL SERVİSİ POWER!', '#ffc629', '#111111']]],
+    ],
+    stops: [[300, -1], [598, 1], [990, -1], [1480, 1], [1590, -1], [2010, 1]],
+    gyms: [[455, 1], [1175, -1], [1790, 1]],
+  },
+  {
+    id: 'eymir', seed: 1987, name: 'Eymir Lake', gp: 'Eymir Lake Grand Prix', short: 'Eymir GP',
+    place: 'Ankara · Eymir Gölü', paint: 'EYMİR', finishAt: 'the Eymir lakeside', theme: 'lake',
+    gpCaps: 'EYMİR LAKE GRAND PRIX', finishSign: 'EYMİR GÖLÜ',
+    blurb: 'Fast sweepers around the lake and a tight hairpin at the far end.',
+    ctrl: [[0, 0], [180, 0], [340, 10], [440, 55], [485, 135], [470, 235], [490, 330], [535, 415], [520, 500], [455, 535], [390, 505], [375, 440], [330, 385], [250, 385],
+      [165, 425], [75, 400], [-15, 440], [-110, 425], [-190, 365], [-205, 275], [-160, 195], [-215, 110], [-235, 40], [-145, 0]],
+    lake: { x: 150, z: 200, rx: 240, rz: 110, wob: 0.07 },
+    stands: [
+      [-95, -12, -1, [['EYMİR LOVES SCHOOL BUSES', '#ffffff', '#1d5fd6'], ['FRESH AIR, FAST BUSES', '#2fa84f', '#ffffff']]],
+      [95, 230, -1, [['LAKESIDE LEGENDS', '#1d5fd6', '#ffffff'], ['FUELED BY STUDENTS', '#ffffff', '#101418'], ['MIND THE HAIRPIN!', '#ffc629', '#111111']]],
+      [-95, 38, 1, [['GO GO OKUL SERVİSİ!', '#ffc629', '#111111'], ['CRAFTER CREW ♥', '#ffffff', '#1f4fd1'], ['ANKARA 2026', '#e10600', '#ffffff']]],
+    ],
+    stops: [[250, -1], [700, 1], [1180, -1], [1540, 1], [1850, -1], [2280, 1]],
+    gyms: [[440, 1], [1330, -1], [2040, 1]],
+  },
+  {
+    id: 'atakule', seed: 1989, name: 'Atakule', gp: 'Atakule Grand Prix', short: 'Atakule GP',
+    place: 'Ankara · Çankaya', paint: 'ATAKULE', finishAt: 'the foot of Atakule', theme: 'downtown',
+    gpCaps: 'ATAKULE GRAND PRIX', finishSign: 'ATAKULE',
+    blurb: 'Tight right-angle corners between tall buildings, at sunset, around the Atakule tower.',
+    ctrl: [[0, 0], [150, 0], [260, 0], [300, 20], [310, 70], [310, 180], [290, 230], [240, 240], [150, 240], [120, 260], [115, 310], [115, 380], [90, 420], [40, 425],
+      [-100, 425], [-140, 405], [-150, 360], [-150, 280], [-175, 240], [-220, 230], [-270, 210], [-285, 160], [-285, 70], [-270, 20], [-220, 0], [-120, 0]],
+    tower: { x: -20, z: 190 },
+    stands: [
+      [-110, -12, -1, [['ÇANKAYA CHEERS FOR YOU', '#ffffff', '#101418'], ['TIGHT CORNERS, BIG HEARTS', '#ffc629', '#111111']]],
+      [90, 215, -1, [['CITY OF CHAMPIONS', '#e10600', '#ffffff'], ['FUELED BY STUDENTS', '#ffffff', '#101418'], ['MASTER #4 ♥', '#ffc629', '#111111']]],
+      [-120, 38, 1, [['ATAKULE GRAND PRIX', '#12161f', '#ffc629'], ['BRAKE LATE, WIN BIG', '#ffffff', '#c3120c']]],
+      [80, 200, 1, [['OKUL SERVİSİ POWER!', '#ffc629', '#111111'], ['SUNSET SPRINT', '#ff7a00', '#ffffff'], ['GO TRANSIT GO!', '#1d5fd6', '#ffffff']]],
+    ],
+    stops: [[200, -1], [420, 1], [600, -1], [960, 1], [1180, -1], [1480, 1]],
+    gyms: [[760, 1], [1060, -1], [1700, 1]],
+  },
+  {
+    id: 'esenboga', seed: 1955, name: 'Esenboğa Airport', gp: 'Esenboğa Airport Grand Prix', short: 'Esenboğa GP',
+    place: 'Ankara · Esenboğa', paint: 'ESENBOĞA', finishAt: 'Esenboğa Airport', theme: 'airport',
+    gpCaps: 'ESENBOĞA AIRPORT GRAND PRIX', finishSign: 'ESENBOĞA AIRPORT',
+    blurb: 'The runway is an 800 m straight. Brake hard for the hairpins and weave between the parked planes.',
+    ctrl: [[0, 0], [220, 0], [440, 0], [520, 20], [555, 75], [530, 130], [465, 145], [380, 140], [320, 165], [300, 230], [330, 300], [300, 365], [225, 380], [150, 345],
+      [95, 280], [20, 260], [-60, 300], [-140, 330], [-240, 300], [-330, 230], [-420, 170], [-450, 90], [-400, 25], [-250, 0]],
+    airport: {
+      terminal: { x: 65, z: 480 }, tower: { x: -150, z: 440 }, sock: { x: 200, z: -70 },
+      aprons: [[65, 425, 240, 70], [-120, 95, 330, 70]],             // centre x, z, size x, z
+      planes: [[10, 425, 0], [120, 425, 0], [-220, 95, 0], [-120, 95, 0], [-20, 95, 0]],   // x, z, yaw (0 = nose north)
+      hangars: [[-340, 390, 0.5], [-270, 450, 0.3]],
+    },
+    stands: [
+      [-120, -12, -1, [['CLEARED FOR TAKE-OFF', '#ffffff', '#1d5fd6'], ['FUELED BY STUDENTS', '#ffffff', '#101418']]],
+      [100, 280, -1, [['RUNWAY RACERS', '#e10600', '#ffffff'], ['FASTEN YOUR SEATBELTS', '#ffc629', '#111111'], ['GO SULTAN GO!', '#7a2fd0', '#ffffff']]],
+      [-150, 38, 1, [['ESENBOĞA GRAND PRIX', '#12161f', '#ffc629'], ['NEXT STOP: VICTORY', '#ffffff', '#c3120c']]],
+      [80, 300, 1, [['OKUL SERVİSİ POWER!', '#ffc629', '#111111'], ['FIRST CLASS FANS', '#ffffff', '#101418'], ['DUCATO FAN CLUB', '#d8141c', '#ffffff']]],
+    ],
+    stops: [[300, -1], [740, 1], [1200, -1], [1520, 1], [1780, -1], [2250, 1]],
+    gyms: [[460, 1], [1680, -1], [2120, 1]],
+  },
+];
+let TDEF = TRACKS[0];   // the circuit that is built right now
+const trackById = (id) => TRACKS.find((t) => t.id === id) || TRACKS[0];
+
 // ---------- the nine drivers: every number and text comes from characters.js ----------
 const DRIVERS = CHARACTERS.map((c) => Object.assign({ photo: PHOTOS[c.id] || '' }, c));
 // texts for the driver screen, built from the numbers in the settings file
@@ -314,7 +394,7 @@ const shuffle = (arr) => { for (let i = arr.length - 1; i > 0; i--) { const j = 
 // =====================================================================
 const col = (hex) => new THREE.Color(hex).convertSRGBToLinear();
 let renderer, scene, camera, sun, hemi, skyMesh, TRACK;
-const W = { stops: [], lights: [], crowdTime: { value: 0 }, flag: null, flagBase: null, cloudGroup: null, gantryBulbs: [], reserved: [] };
+const W = { root: null, stops: [], crowdTime: { value: 0 }, flag: null, flagBase: null, cloudGroup: null, gantryBulbs: [], reserved: [], gyms: [], park: null, lot: null, water: null };
 
 // graphics drawn by the processor instead of a graphics chip (old school PCs, blocked drivers) need the lightest settings
 let SOFT_GL = false;
@@ -411,7 +491,7 @@ function roadDecal(w, h, map, s, lat, y, opts) {
   const mesh = new THREE.Mesh(g, m); mesh.receiveShadow = true;
   placeOnTrack(mesh, s, lat, y, Math.PI);
   mesh.renderOrder = 2;
-  scene.add(mesh); return mesh;
+  W.root.add(mesh); return mesh;
 }
 // three r128 never frustum-culls an InstancedMesh, so a big set is split into cells with their own
 // bounds: the cells share one set of buffers, and only the ones in view (or in the shadow box) are drawn
@@ -493,38 +573,45 @@ function aimSun(fx, fz) {
 // ---- circuit surfaces ----
 function buildCircuit() {
   const T = TRACK, N = T.N;
-  // parking-lot section = the west side of the circuit
+  // a car park stage (only some circuits have one): the part of the loop west of TDEF.park.maxX
   let p0 = -1, p1 = -1;
-  for (let i = 0; i < N; i++) if (T.px[i] < -268) { if (p0 < 0) p0 = i; p1 = i; }
-  W.park = { i0: p0, i1: p1, s0: p0 * T.ds, s1: p1 * T.ds };
+  if (TDEF.park) for (let i = 0; i < N; i++) if (T.px[i] < TDEF.park.maxX) { if (p0 < 0) p0 = i; p1 = i; }
+  W.park = p0 >= 0 ? { i0: p0, i1: p1, s0: p0 * T.ds, s1: p1 * T.ds } : null;
 
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(5200, 5200), new THREE.MeshLambertMaterial({ map: texGrass(), color: col(0xe6f0da) }));
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(5200, 5200), new THREE.MeshLambertMaterial({ map: texGrass(), color: col(W.theme.grass) }));
   ground.material.map.repeat.set(520, 520);
   ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true;
-  scene.add(ground);
+  W.root.add(ground);
 
   // the big car park the west section runs through
-  let minx = 1e9, maxx = -1e9, minz = 1e9, maxz = -1e9;
-  for (let i = p0; i <= p1; i++) { minx = Math.min(minx, T.px[i]); maxx = Math.max(maxx, T.px[i]); minz = Math.min(minz, T.pz[i]); maxz = Math.max(maxz, T.pz[i]); }
-  const lot = { x0: minx - 70, x1: maxx + 75, z0: minz - 10, z1: maxz + 10 };
-  W.lot = lot;
-  const lotTex = texLot(); lotTex.repeat.set((lot.x1 - lot.x0) / 20, (lot.z1 - lot.z0) / 20);
-  const lotMesh = new THREE.Mesh(new THREE.PlaneGeometry(lot.x1 - lot.x0, lot.z1 - lot.z0), new THREE.MeshLambertMaterial({ map: lotTex, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }));
-  lotMesh.rotation.x = -Math.PI / 2; lotMesh.position.set((lot.x0 + lot.x1) / 2, 0.01, (lot.z0 + lot.z1) / 2); lotMesh.receiveShadow = true;
-  scene.add(lotMesh);
+  if (W.park) {
+    let minx = 1e9, maxx = -1e9, minz = 1e9, maxz = -1e9;
+    for (let i = p0; i <= p1; i++) { minx = Math.min(minx, T.px[i]); maxx = Math.max(maxx, T.px[i]); minz = Math.min(minz, T.pz[i]); maxz = Math.max(maxz, T.pz[i]); }
+    const lot = { x0: minx - 70, x1: maxx + 75, z0: minz - 10, z1: maxz + 10 };
+    W.lot = lot;
+    const lotTex = texLot(); lotTex.repeat.set((lot.x1 - lot.x0) / 20, (lot.z1 - lot.z0) / 20);
+    const lotMesh = new THREE.Mesh(new THREE.PlaneGeometry(lot.x1 - lot.x0, lot.z1 - lot.z0), new THREE.MeshLambertMaterial({ map: lotTex, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }));
+    lotMesh.rotation.x = -Math.PI / 2; lotMesh.position.set((lot.x0 + lot.x1) / 2, 0.01, (lot.z0 + lot.z1) / 2); lotMesh.receiveShadow = true;
+    W.root.add(lotMesh);
+  }
 
   // runoff / sidewalks
   const pave = new THREE.MeshLambertMaterial({ map: texPave(), polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
   for (const side of [1, -1]) {
     const g = side > 0 ? stripGeo(T, HW - 0.2, WALL + 0.7, 0.015, 0.015, { vLen: 5.6 }) : stripGeo(T, -WALL - 0.7, -HW + 0.2, 0.015, 0.015, { vLen: 5.6 });
-    const m = new THREE.Mesh(g, pave); m.receiveShadow = true; scene.add(m);
+    const m = new THREE.Mesh(g, pave); m.receiveShadow = true; W.root.add(m);
   }
   // road: main asphalt + parking-lot asphalt
-  const roadMat = new THREE.MeshStandardMaterial({ map: texAsphalt(false), roughness: 0.92, metalness: 0, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
-  const parkMat = new THREE.MeshStandardMaterial({ map: texAsphalt(true), roughness: 0.9, metalness: 0, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
-  const r1 = new THREE.Mesh(stripGeo(T, -HW, HW, 0.03, 0.03, { i0: p1, cnt: N - (p1 - p0), vLen: 16 }), roadMat);
-  const r2 = new THREE.Mesh(stripGeo(T, -HW, HW, 0.03, 0.03, { i0: p0, cnt: p1 - p0, vLen: 15 }), parkMat);
-  r1.receiveShadow = r2.receiveShadow = true; scene.add(r1, r2);
+  const roadMat = new THREE.MeshStandardMaterial({ map: texAsphalt(false, W.theme.road), roughness: 0.92, metalness: 0, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
+  if (W.park) {
+    const parkMat = new THREE.MeshStandardMaterial({ map: texAsphalt(true), roughness: 0.9, metalness: 0, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
+    const r1 = new THREE.Mesh(stripGeo(T, -HW, HW, 0.03, 0.03, { i0: p1, cnt: N - (p1 - p0), vLen: 16 }), roadMat);
+    const r2 = new THREE.Mesh(stripGeo(T, -HW, HW, 0.03, 0.03, { i0: p0, cnt: p1 - p0, vLen: 15 }), parkMat);
+    r1.receiveShadow = r2.receiveShadow = true; W.root.add(r1, r2);
+  } else {
+    const r1 = new THREE.Mesh(stripGeo(T, -HW, HW, 0.03, 0.03, { vLen: 16 }), roadMat);
+    r1.receiveShadow = true; W.root.add(r1);
+  }
 
   // kerbs on corners
   const kerbMat = new THREE.MeshLambertMaterial({ map: texKerb(), polygonOffset: true, polygonOffsetFactor: -5, polygonOffsetUnits: -5 });
@@ -543,16 +630,16 @@ function buildCircuit() {
     const i0 = (a + N) % N, cnt = b - a;
     for (const side of [1, -1]) {
       const g = side > 0 ? stripGeo(T, HW - 0.3, HW + KERB, 0.045, 0.045, { i0, cnt, vLen: 3.2 }) : stripGeo(T, -HW - KERB, -HW + 0.3, 0.045, 0.045, { i0, cnt, vLen: 3.2 });
-      const m = new THREE.Mesh(g, kerbMat); m.receiveShadow = true; scene.add(m);
+      const m = new THREE.Mesh(g, kerbMat); m.receiveShadow = true; W.root.add(m);
     }
   }
 
   // concrete walls with sponsor boards (not in the car park section)
-  const ads = texAds();
+  const ads = texAds(TDEF.gpCaps);
   const adMat = new THREE.MeshLambertMaterial({ map: ads });
   const topMat = new THREE.MeshLambertMaterial({ color: col(0xb9bcc0) });
   const outMat = new THREE.MeshLambertMaterial({ color: col(0x8e9296) });
-  const wi0 = (p1 + 6) % N, wcnt = N - (p1 - p0) - 12, WH = 1.15;
+  const wi0 = W.park ? (p1 + 6) % N : 0, wcnt = W.park ? N - (p1 - p0) - 12 : N, WH = 1.15;
   for (const side of [1, -1]) {
     const ri0 = wi0, rcnt = wcnt;
     const d = side * WALL, d2 = side * (WALL + 0.55);
@@ -561,9 +648,14 @@ function buildCircuit() {
     const outer = stripGeo(T, d2, d2, 0, WH, { i0: ri0, cnt: rcnt, flip: side > 0 });
     const mi = new THREE.Mesh(inner, adMat), mt = new THREE.Mesh(top, topMat), mo = new THREE.Mesh(outer, outMat);
     mi.castShadow = mt.castShadow = true; mi.receiveShadow = true;
-    scene.add(mi, mt, mo);
+    W.root.add(mi, mt, mo);
   }
-  // plastic water barriers + cones through the car park
+  if (W.park) buildParkBarriers(p0, p1);
+  buildLineDecals();
+}
+// plastic water barriers through the car park
+function buildParkBarriers(p0, p1) {
+  const T = TRACK;
   const bGeo = mergeColored([[boxAt(0.55, 0.85, 1.9, 0, 0.425, 0), 0xffffff], [boxAt(0.7, 0.12, 2.0, 0, 0.06, 0), 0xffffff]]);
   const barrierCount = Math.floor((p1 - p0 + 12) * T.ds / 2.0) * 2;
   const barriers = new THREE.InstancedMesh(bGeo, VCMAT(), barrierCount);
@@ -579,9 +671,11 @@ function buildCircuit() {
     }
   }
   barriers.count = bi; barriers.castShadow = true;
-  scene.add(barriers); splitInstanced(barriers, 60);
-
-  // start / finish line, grid boxes, painted lettering
+  W.root.add(barriers); splitInstanced(barriers, 60);
+}
+// start / finish line, grid boxes, painted lettering
+function buildLineDecals() {
+  const T = TRACK;
   roadDecal(20, 1.6, texChecker(25, 2), 0, 0, 0.06);
   const gridTex = (n) => texLabel(256, 128, (g) => {
     g.strokeStyle = '#f4f4f4'; g.lineWidth = 10; g.beginPath(); g.moveTo(14, 120); g.lineTo(14, 14); g.lineTo(242, 14); g.lineTo(242, 120); g.stroke();
@@ -596,7 +690,7 @@ function buildCircuit() {
   }
   const paint = texLabel(1024, 256, (g, w, h) => {
     g.fillStyle = 'rgba(245,245,245,.78)'; g.font = `italic 900 170px ${FONT_D}`; g.textAlign = 'center'; g.textBaseline = 'middle';
-    fitText(g, 'ANKA BİLİM', w / 2, h / 2 + 8, w - 40);
+    fitText(g, TDEF.paint, w / 2, h / 2 + 8, w - 40);
   });
   roadDecal(15, 3.8, paint, 34, 0, 0.06);
   const paint2 = texLabel(1024, 256, (g, w, h) => {
@@ -624,13 +718,13 @@ function buildGantry() {
     g.beginPath(); g.moveTo(w - 330, 150); g.lineTo(w - 260, 50); g.lineTo(w - 40, 50); g.lineTo(w - 110, 150); g.fill();
     g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle';
     g.font = `italic 900 104px ${FONT_D}`; fitText(g, 'SCHOOL BUS RACE', w / 2, 82, 1200);
-    g.fillStyle = '#b8c0cc'; g.font = `800 40px ${FONT_D}`; fitText(g, 'A N K A   B İ L İ M   G R A N D   P R I X', w / 2, 158, 1200);
+    g.fillStyle = '#b8c0cc'; g.font = `800 40px ${FONT_D}`; fitText(g, TDEF.gpCaps.split(' ').map((x) => x.split('').join(' ')).join('   '), w / 2, 158, 1200);
   });
   const back = texLabel(2048, 200, (g, w, h) => {
     for (let i = 0; i < 64; i++) for (let j = 0; j < 6; j++) { g.fillStyle = (i + j) % 2 ? '#111' : '#f4f4f4'; g.fillRect(i * 32, j * 33.4, 32, 34); }
     g.fillStyle = '#0d1016'; g.fillRect(260, 16, w - 520, h - 32);
     g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle';
-    g.font = `italic 900 96px ${FONT_D}`; fitText(g, 'FINISH · ANKA BİLİM SCHOOL', w / 2, h / 2 + 4, w - 600);
+    g.font = `italic 900 96px ${FONT_D}`; fitText(g, 'FINISH · ' + TDEF.finishSign, w / 2, h / 2 + 4, w - 600);
   });
   const panelMats = [0, 0, 0, 0, 0, 0].map(() => new THREE.MeshLambertMaterial({ color: col(0x0d1016) }));
   panelMats[5] = new THREE.MeshBasicMaterial({ map: front, toneMapped: false });
@@ -646,7 +740,7 @@ function buildGantry() {
     for (const y of [8.1, 7.25]) { const b = new THREE.Mesh(bulbGeo, m); b.position.set((i - 2) * 1.15, y, -0.34); grp.add(b); }
     W.gantryBulbs.push(m);
   }
-  scene.add(grp);
+  W.root.add(grp);
 }
 function setGantryLights(n, green) {
   W.gantryBulbs.forEach((m, i) => m.color.copy(green ? col(0x19e05a) : (i < n ? col(0xff2010) : col(0x2a0707))));
@@ -660,7 +754,7 @@ function facingTrack(p, side) { // yaw so that local +z points from this side to
   return Math.atan2(ax, az);
 }
 function buildSchool() {
-  const s = 64, side = -1;
+  const s = TDEF.school.s, side = TDEF.school.side;
   const p = TRACK.pointAt(s, side * (WALL + 25), {});
   const grp = new THREE.Group();
   grp.position.set(p.x, 0, p.z); grp.rotation.y = facingTrack(p, side);
@@ -715,7 +809,7 @@ function buildSchool() {
   const flag = new THREE.Mesh(fg, new THREE.MeshLambertMaterial({ map: texFlag(), side: THREE.DoubleSide }));
   flag.position.set(-24, 13.4, Dd / 2 + 14); flag.rotation.y = -0.4; grp.add(flag);
   W.flag = flag; W.flagBase = Float32Array.from(fg.attributes.position.array);
-  scene.add(grp);
+  W.root.add(grp);
   grp.updateMatrixWorld(true);
   const c = new THREE.Vector3(0, 0, 4).applyMatrix4(grp.matrixWorld);
   reserve(c.x, c.z, 46);
@@ -749,7 +843,7 @@ function buildStand(s0, s1, side, banners) {
     pl.position.set(-len / 2 + (i + 0.5) * (len / banners.length), 1.35, -0.12);
     grp.add(pl);
   });
-  scene.add(grp); grp.updateMatrixWorld(true);
+  W.root.add(grp); grp.updateMatrixWorld(true);
   const v = new THREE.Vector3();
   for (let r = 0; r < rows; r++) for (let x = -len / 2 + 0.6; x < len / 2 - 0.5; x += 0.78) {
     if (rnd() < 0.14) continue;
@@ -760,6 +854,7 @@ function buildStand(s0, s1, side, banners) {
 }
 function finishCrowd() {
   const n = CROWD.body.length;
+  if (!n) return;
   const bodyGeo = new THREE.BoxGeometry(0.5, 0.72, 0.34); bodyGeo.translate(0, 0.36, 0);
   const headGeo = new THREE.BoxGeometry(0.27, 0.28, 0.27); headGeo.translate(0, 0.88, 0);
   const patch = (mat) => {
@@ -780,15 +875,13 @@ function finishCrowd() {
     bodies.setMatrixAt(i, d.matrix); heads.setMatrixAt(i, d.matrix);
     bodies.setColorAt(i, col(pick(shirts))); heads.setColorAt(i, col(pick(skins)));
   });
-  scene.add(bodies, heads);
+  W.root.add(bodies, heads);
   splitInstanced(bodies, 40); splitInstanced(heads, 40);
 }
 function buildStands() {
   const L = TRACK.L;
-  buildStand(L - 118, L - 12, -1, [['BUSES MAKE A BETTER TOMORROW ♥', '#ffffff', '#101418'], ['STUDENTS TODAY, CHAMPIONS TOMORROW', '#ffc629', '#111111'], ['SAME VEHICLES, BIGGER DREAMS ♥', '#ffffff', '#c3120c']]);
-  buildStand(118, 262, -1, [['LET THE BEST BUS WIN!', '#e10600', '#ffffff'], ['FUELED BY STUDENTS', '#ffffff', '#101418'], ['DIFFERENT ROUTES. SAME FUTURE.', '#ffc629', '#111111']]);
-  buildStand(L - 120, 40, 1, [['MORE THAN A RIDE — A COMMUNITY', '#ffffff', '#101418'], ['SAME ROADS. DIFFERENT LEGENDS.', '#101418', '#ffc629'], ['GO SULTAN GO!', '#7a2fd0', '#ffffff'], ['SPRINTER #2 ♥', '#00d2be', '#101418']]);
-  buildStand(92, 250, 1, [['ANKARA LOVES SCHOOL BUSES', '#ffffff', '#c3120c'], ['DUCATO FAN CLUB', '#d8141c', '#ffffff'], ['OKUL SERVİSİ POWER!', '#ffc629', '#111111']]);
+  CROWD.body = [];
+  for (const [a, b, side, banners] of TDEF.stands) buildStand(a < 0 ? L + a : a, b < 0 ? L + b : b, side, banners);
   finishCrowd();
 }
 
@@ -802,8 +895,7 @@ function kidGeometry(shirt, pants, skin, hair, bag) {
   ]);
 }
 function buildStops() {
-  const L = TRACK.L;
-  const defs = [[300, -1], [598, 1], [990, -1], [1480, 1], [1590, -1], [2010, 1]];
+  const defs = TDEF.stops;
   const padTex = texLabel(512, 256, (g, w, h) => {
     g.fillStyle = 'rgba(255,198,41,.22)'; g.fillRect(0, 0, w, h);
     g.strokeStyle = '#ffc629'; g.lineWidth = 14; g.setLineDash([36, 22]); g.strokeRect(10, 10, w - 20, h - 20); g.setLineDash([]);
@@ -859,7 +951,7 @@ function buildStops() {
     }
     const marker = new THREE.Sprite(new THREE.SpriteMaterial({ map: markTex, depthWrite: false, fog: false }));
     marker.scale.set(3.4, 3.4, 1); marker.position.set(-ax * 1.6, 6.5, 0); marker.renderOrder = 5; grp.add(marker);
-    scene.add(grp);
+    W.root.add(grp);
     W.stops.push({ s, side, lat, kids, marker, grp, got: new Map(), anim: -1, backAt: 0 });
     reserve(grp.position.x, grp.position.z, 12);
   }
@@ -896,27 +988,27 @@ function addBuilding(wb, rb, cx, cz, w, d, h, yaw) {
   rb.quad(r[0], r[1], r[2], r[3], [0, 1, 0], [[0, 0], [0, 1], [1, 1], [1, 0]]);
 }
 function buildCity() {
-  const T = TRACK, pals = [['#e9dcc0', '#8b7355'], ['#f1ede4', '#9aa0a6'], ['#d9c2a3', '#7a5c45'], ['#c9d3d8', '#5d6d78'], ['#efc9a8', '#8a5a3c']];
+  const T = TRACK, Q = W.theme.city, pals = Q.pals;
   const B = pals.map(() => new Builder()), roof = new Builder();
   const placed = [];
   const tmp = {};
   const lot = W.lot;
-  const inLot = (x, z, m) => x > lot.x0 - m && x < lot.x1 + m && z > lot.z0 - m && z < lot.z1 + m;
+  const inLot = (x, z, m) => !!lot && x > lot.x0 - m && x < lot.x1 + m && z > lot.z0 - m && z < lot.z1 + m;
   const tryPlace = (x, z, w, d, h, yaw) => {
     const rad = Math.hypot(w, d) / 2;
     if (T.clearance(x, z) < WALL + 7 + rad * 0.6) return false;
-    if (isReserved(x, z, rad) || inLot(x, z, rad)) return false;
+    if (isReserved(x, z, rad) || inLot(x, z, rad) || inWater(x, z, rad + 6)) return false;
     for (const q of placed) { const dx = q[0] - x, dz = q[1] - z; if (dx * dx + dz * dz < (q[2] + rad + 3) ** 2) return false; }
     placed.push([x, z, rad]);
     addBuilding(pick(B), roof, x, z, w, d, h, yaw);
     return true;
   };
-  for (let s = 0; s < T.L; s += rr(20, 30)) {
+  for (let s = 0; s < T.L; s += rr(Q.step[0], Q.step[1])) {
     for (const side of [1, -1]) {
-      for (const ring of [0, 1]) {
-        if (rnd() < 0.18) continue;
-        const w = rr(14, 30), d = rr(12, 22), h = rnd() < 0.15 ? rr(36, 52) : rr(11, 30);
-        T.pointAt(s, side * (WALL + 12 + d / 2 + ring * rr(30, 44)), tmp);
+      for (let ring = 0; ring < Q.rings; ring++) {
+        if (rnd() < Q.skip) continue;
+        const w = rr(Q.w[0], Q.w[1]), d = rr(Q.d[0], Q.d[1]), h = rnd() < Q.tall ? rr(Q.tallH[0], Q.tallH[1]) : rr(Q.h[0], Q.h[1]);
+        T.pointAt(s, side * (WALL + Q.off + d / 2 + ring * rr(Q.gap[0], Q.gap[1])), tmp);
         tryPlace(tmp.x, tmp.z, w, d, h, tmp.yaw);
       }
     }
@@ -924,27 +1016,28 @@ function buildCity() {
   pals.forEach((pl, i) => {
     const t = texFacade(pl[0], pl[1]);
     const m = new THREE.Mesh(B[i].geo(), new THREE.MeshLambertMaterial({ map: t }));
-    m.castShadow = true; m.receiveShadow = true; scene.add(m);
+    m.castShadow = true; m.receiveShadow = true; W.root.add(m);
   });
   const rm = new THREE.Mesh(roof.geo(), new THREE.MeshLambertMaterial({ color: col(0x6f7378) }));
-  rm.receiveShadow = true; scene.add(rm);
+  rm.receiveShadow = true; W.root.add(rm);
   W.buildings = placed;
 
   // trees
   const spots = [];
   const okTree = (x, z) => {
     if (T.clearance(x, z) < WALL + 2.8) return false;
-    if (isReserved(x, z, 2) || inLot(x, z, 2)) return false;
+    if (isReserved(x, z, 2) || inLot(x, z, 2) || inWater(x, z, 3)) return false;
     for (const q of placed) { const dx = q[0] - x, dz = q[1] - z; if (dx * dx + dz * dz < (q[2] + 2.5) ** 2) return false; }
     return true;
   };
-  for (let s = 0; s < T.L; s += rr(9, 16)) for (const side of [1, -1]) {
-    if (rnd() < 0.35) continue;
+  for (let s = 0; s < T.L; s += rr(Q.treeStep[0], Q.treeStep[1])) for (const side of [1, -1]) {
+    if (rnd() < Q.treeSkip) continue;
     T.pointAt(s, side * (WALL + rr(4, 8)), tmp);
     if (okTree(tmp.x, tmp.z)) spots.push([tmp.x, tmp.z, rr(0.8, 1.25)]);
   }
-  for (let i = 0; i < 520; i++) {
-    const x = rr(-600, 700), z = rr(-300, 780);
+  const bx = trackBounds(260);
+  for (let i = 0; i < Q.trees; i++) {
+    const x = rr(bx.x0, bx.x1), z = rr(bx.z0, bx.z1);
     if (okTree(x, z)) spots.push([x, z, rr(0.8, 1.4)]);
   }
   const trunkG = new THREE.CylinderGeometry(0.16, 0.24, 2.4, 6); trunkG.translate(0, 1.2, 0);
@@ -958,24 +1051,30 @@ function buildCity() {
     trunks.setMatrixAt(i, d.matrix); crowns.setMatrixAt(i, d.matrix); crowns.setColorAt(i, col(pick(greens)));
   });
   trunks.castShadow = crowns.castShadow = true;
-  scene.add(trunks, crowns);
+  W.root.add(trunks, crowns);
 
   // street lights along the circuit
   const lampG = mergeColored([
     [cylAt(0.09, 0.14, 9, 6, 0, 4.5, 0), 0x5d636b], [boxAt(2.6, 0.12, 0.12, 1.25, 8.9, 0), 0x5d636b], [boxAt(0.9, 0.16, 0.45, 2.55, 8.85, 0), 0xe9eef2],
   ]);
   const lampSpots = [];
-  for (let s = 18; s < T.L; s += 38) for (const side of [1, -1]) {
+  for (let s = 18; Q.lampEvery > 0 && s < T.L; s += Q.lampEvery) for (const side of [1, -1]) {
     if (s < 30 || s > T.L - 30) continue;
     const q = T.pointAt(s + (side > 0 ? 19 : 0), side * (WALL + 1.4), {});
     if (isReserved(q.x, q.z, 1)) continue;
     lampSpots.push([q.x, q.z, side > 0 ? q.yaw : q.yaw + Math.PI]);
   }
-  const lamps = new THREE.InstancedMesh(lampG, VCMAT(), lampSpots.length);
-  lampSpots.forEach(([x, z, yaw], i) => { d.position.set(x, 0, z); d.rotation.set(0, yaw, 0); d.scale.set(1, 1, 1); d.updateMatrix(); lamps.setMatrixAt(i, d.matrix); });
-  lamps.castShadow = true; scene.add(lamps); splitInstanced(lamps, 150);
+  if (lampSpots.length) {
+    const lamps = new THREE.InstancedMesh(lampG, VCMAT(), lampSpots.length);
+    lampSpots.forEach(([x, z, yaw], i) => { d.position.set(x, 0, z); d.rotation.set(0, yaw, 0); d.scale.set(1, 1, 1); d.updateMatrix(); lamps.setMatrixAt(i, d.matrix); });
+    lamps.castShadow = true; W.root.add(lamps); splitInstanced(lamps, 150);
+  }
 
-  // parked cars in the lot
+  if (lot) buildLotCars(lot);
+}
+// parked cars and the sign of the car park stage
+function buildLotCars(lot) {
+  const T = TRACK, d = new THREE.Object3D();
   const carG = mergeColored([[boxAt(1.8, 0.8, 4.3, 0, 0.6, 0), 0xffffff], [boxAt(1.6, 0.6, 2.2, 0, 1.25, -0.2), 0xffffff], [boxAt(1.62, 0.45, 2.0, 0, 1.25, -0.2), 0x222a33]]);
   const carSpots = [];
   for (let x = lot.x0 + 6; x < lot.x1 - 4; x += 2.5) for (let z = lot.z0 + 4; z < lot.z1; z += 20) {
@@ -988,7 +1087,7 @@ function buildCity() {
   const cars = new THREE.InstancedMesh(carG, new THREE.MeshLambertMaterial({ vertexColors: true }), Math.max(1, carSpots.length));
   const carCols = [0xd9dde2, 0x1d2025, 0xa31919, 0x2a5aa8, 0x8c9096, 0xf4f4f4, 0x6d4b2d];
   carSpots.forEach(([x, z], i) => { d.position.set(x, 0, z); d.rotation.set(0, (rnd() < 0.5 ? 0 : Math.PI), 0); d.updateMatrix(); cars.setMatrixAt(i, d.matrix); cars.setColorAt(i, col(pick(carCols))); });
-  cars.count = carSpots.length; cars.castShadow = true; scene.add(cars);
+  cars.count = carSpots.length; cars.castShadow = true; W.root.add(cars);
   // car park sign
   const lotSign = texLabel(1024, 256, (g, w, h) => {
     g.fillStyle = '#1d5fd6'; g.fillRect(0, 0, w, h); g.fillStyle = '#fff'; g.fillRect(24, 24, 200, 208);
@@ -1002,23 +1101,30 @@ function buildCity() {
   const board = new THREE.Mesh(new THREE.PlaneGeometry(12, 3), new THREE.MeshLambertMaterial({ map: lotSign }));
   board.position.y = 5.2; ps.add(board);
   ps.add(new THREE.Mesh(mergeColored([[cylAt(0.15, 0.15, 5, 6, -4.5, 2.5, 0.1), 0x5d636b], [cylAt(0.15, 0.15, 5, 6, 4.5, 2.5, 0.1), 0x5d636b]]), VCMAT()));
-  scene.add(ps);
+  W.root.add(ps);
 }
 
+// the area the circuit covers, plus a margin
+function trackBounds(m) {
+  const T = TRACK; let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9;
+  for (let i = 0; i < T.N; i++) { x0 = Math.min(x0, T.px[i]); x1 = Math.max(x1, T.px[i]); z0 = Math.min(z0, T.pz[i]); z1 = Math.max(z1, T.pz[i]); }
+  return { x0: x0 - m, x1: x1 + m, z0: z0 - m, z1: z1 + m, cx: (x0 + x1) / 2, cz: (z0 + z1) / 2 };
+}
+const inWater = (x, z, m) => { const L = W.water; if (!L) return false; const dx = (x - L.x) / (L.rx * 1.1 + m), dz = (z - L.z) / (L.rz * 1.1 + m); return dx * dx + dz * dz < 1; };
 // ---- distant Ankara hills, skyline and clouds ----
 function buildHorizon() {
-  const cx = 35, cz = 233, parts = [];
+  const bx = trackBounds(0), cx = bx.cx, cz = bx.cz, parts = [], Q = W.theme.city;
   for (let i = 0; i < 34; i++) {
     const a = (i / 34) * Math.PI * 2 + rr(-0.05, 0.05), r = rr(1500, 2100), h = rr(90, 230), rad = rr(260, 460);
     const g = new THREE.ConeGeometry(rad, h, 7); g.translate(cx + Math.cos(a) * r, h / 2 - 4, cz + Math.sin(a) * r);
     parts.push([g, pick([0x8b8f78, 0x7f866c, 0x9a8f78, 0x8a8a7c])]);
   }
-  for (let i = 0; i < 90; i++) {
-    const a = rnd() * Math.PI * 2, r = rr(820, 1250), h = rr(18, 80), w = rr(20, 50);
+  for (let i = 0; i < Q.skyline; i++) {
+    const a = rnd() * Math.PI * 2, r = rr(820, 1250), h = rr(18, 80) * Q.skylineH, w = rr(20, 50);
     parts.push([boxAt(w, h, rr(20, 45), cx + Math.cos(a) * r, h / 2, cz + Math.sin(a) * r, rnd() * 3), pick([0xb7c0c9, 0xa6afb9, 0xc8c3b8, 0x9ea9b4])]);
   }
   const m = new THREE.Mesh(mergeColored(parts), new THREE.MeshPhongMaterial({ vertexColors: true, flatShading: true, shininess: 0, specular: 0x000000 }));
-  scene.add(m);
+  W.root.add(m);
   const cloud = texLabel(256, 128, (g) => {
     for (let i = 0; i < 16; i++) { const x = rr(50, 206), y = rr(52, 84), r = rr(20, 44); const gr = g.createRadialGradient(x, y, 1, x, y, r); gr.addColorStop(0, 'rgba(255,255,255,.9)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill(); }
   });
@@ -1029,18 +1135,266 @@ function buildHorizon() {
     sp.position.set(cx + Math.cos(a) * r, rr(320, 560), cz + Math.sin(a) * r); sp.scale.set(sc, sc * 0.45, 1);
     W.cloudGroup.add(sp);
   }
-  scene.add(W.cloudGroup);
+  W.root.add(W.cloudGroup);
 }
-function buildWorld() {
-  TRACK = buildTrack();
-  buildSky();
-  buildCircuit();
-  buildGantry();
-  buildSchool();
-  buildStands();
-  buildStops();
-  buildCity();
-  buildHorizon();
+// builds circuit `def` and everything around it; building another one first removes the old world
+function buildWorld(def) {
+  TDEF = def || TDEF;
+  if (!skyMesh) buildSky();
+  disposeWorld();
+  W.root = new THREE.Group(); scene.add(W.root);
+  W.stops = []; W.gantryBulbs = []; W.reserved = []; W.gyms = []; W.flag = null; W.flagBase = null; W.cloudGroup = null; W.water = null; W.park = null; W.lot = null;
+  const keep = rnd; rnd = mulberry32(TDEF.seed);   // the same circuit always gets the same scenery
+  try {
+    TRACK = buildTrack(TDEF.ctrl);
+    applyTheme(TDEF);
+    buildCircuit();
+    buildGantry();
+    if (TDEF.school) buildSchool();
+    buildLandmarks();
+    buildStands();
+    buildStops();
+    buildCity();
+    buildHorizon();
+    buildGyms();
+  } finally { rnd = keep; }
+}
+// frees the GPU memory of the current world (geometry, materials, textures) and takes it out of the scene
+function disposeWorld() {
+  if (!W.root) return;
+  const seen = new Set();
+  W.root.traverse((o) => {
+    if (o.isInstancedMesh && o.dispose) o.dispose();
+    if (o.geometry && !seen.has(o.geometry)) { seen.add(o.geometry); o.geometry.dispose(); }
+    const ms = !o.material ? [] : Array.isArray(o.material) ? o.material : [o.material];
+    for (const m of ms) {
+      if (seen.has(m)) continue;
+      seen.add(m);
+      for (const k of ['map', 'alphaMap', 'emissiveMap']) { const tx = m[k]; if (tx && !seen.has(tx)) { seen.add(tx); tx.dispose(); } }
+      m.dispose();
+    }
+  });
+  scene.remove(W.root); W.root = null;
+}
+
+// =====================================================================
+//  THEMES: light, sky and scenery of each circuit, and its landmarks
+//  (Eymir's lake, the Atakule tower, the airport at Esenboğa)
+// =====================================================================
+const CITY_PALS = [['#e9dcc0', '#8b7355'], ['#f1ede4', '#9aa0a6'], ['#d9c2a3', '#7a5c45'], ['#c9d3d8', '#5d6d78'], ['#efc9a8', '#8a5a3c']];
+const THEMES = {
+  // sky: top, horizon, below the horizon · sun: colour, strength · hemi: sky, ground, strength · fog: start, end
+  city: {
+    sky: [0x3f7fd0, 0xbcd3e6, 0xb4c9dc], sun: [0xfff0d8, 1.75], hemi: [0xcfe2ff, 0x6b6150, 0.78], fog: [260, 2300], grass: 0xe6f0da,
+    city: { pals: CITY_PALS, step: [20, 30], rings: 2, skip: 0.18, w: [14, 30], d: [12, 22], h: [11, 30], tall: 0.15, tallH: [36, 52], off: 12, gap: [30, 44],
+      treeStep: [9, 16], treeSkip: 0.35, trees: 520, lampEvery: 38, skyline: 90, skylineH: 1 },
+  },
+  lake: {
+    sky: [0x3a7ad6, 0xc4def0, 0xb4cfe0], sun: [0xfff3e0, 1.8], hemi: [0xd2e6ff, 0x5f6a48, 0.8], fog: [300, 2400], grass: 0xd2ecbd,
+    city: { pals: [['#f3eee4', '#7a5c45'], ['#e6d3b5', '#6b4a2e'], ['#fbfaf5', '#2f5d3a']], step: [40, 70], rings: 1, skip: 0.72, w: [9, 16], d: [8, 12], h: [5, 9], tall: 0, tallH: [0, 0], off: 16, gap: [0, 0],
+      treeStep: [5, 9], treeSkip: 0.12, trees: 1500, lampEvery: 64, skyline: 24, skylineH: 0.6 },
+  },
+  downtown: {
+    sky: [0x3d5c9e, 0xf2bd8c, 0xd9ab86], sun: [0xffc58a, 1.6], hemi: [0xffdcbc, 0x5a4a40, 0.74], fog: [220, 2000], grass: 0xe9dcc2,
+    city: { pals: [['#d8d2c8', '#4d5560'], ['#c9d3d8', '#3a4652'], ['#e9dcc0', '#6b5a48'], ['#b8c2cc', '#2e3a46'], ['#efe4d2', '#8a5a3c'], ['#9aa8b6', '#20303f']],
+      step: [16, 24], rings: 3, skip: 0.06, w: [16, 30], d: [14, 24], h: [24, 55], tall: 0.3, tallH: [60, 100], off: 10, gap: [26, 36],
+      treeStep: [14, 22], treeSkip: 0.6, trees: 120, lampEvery: 30, skyline: 170, skylineH: 1.6 },
+  },
+  airport: {
+    sky: [0x2f6fd6, 0xd0e2f2, 0xbdd3e6], sun: [0xfff6e8, 1.9], hemi: [0xd6e8ff, 0x6e6a5a, 0.8], fog: [320, 2700], grass: 0xdbe6bb, road: '#4b4f54',
+    city: { pals: [['#e8ecef', '#5d6d78']], step: [60, 90], rings: 1, skip: 1, w: [10, 20], d: [10, 20], h: [6, 10], tall: 0, tallH: [0, 0], off: 20, gap: [0, 0],
+      treeStep: [22, 34], treeSkip: 0.7, trees: 160, lampEvery: 0, skyline: 36, skylineH: 0.5 },
+  },
+};
+function applyTheme(def) {
+  const th = THEMES[def.theme] || THEMES.city, u = skyMesh.material.uniforms;
+  u.uTop.value.copy(col(th.sky[0])); u.uHor.value.copy(col(th.sky[1])); u.uBot.value.copy(col(th.sky[2]));
+  scene.fog.color.copy(u.uHor.value); scene.fog.near = th.fog[0]; scene.fog.far = th.fog[1]; scene.background.copy(u.uHor.value);
+  sun.color.copy(col(th.sun[0])); sun.intensity = th.sun[1];
+  hemi.color.copy(col(th.hemi[0])); hemi.groundColor.copy(col(th.hemi[1])); hemi.intensity = th.hemi[2];
+  for (const k of Object.keys(SKY0)) delete SKY0[k];   // the rain darkens this sky, not the last one
+  W.theme = th; W.anim = [];
+}
+function buildLandmarks() {
+  if (TDEF.lake) buildLake(TDEF.lake);
+  if (TDEF.tower) buildAtakule(TDEF.tower);
+  if (TDEF.airport) buildAirport(TDEF.airport);
+}
+// a flat shape lying on the ground (points are world x, z)
+function groundShape(pts, y, mat) {
+  const sh = new THREE.Shape();
+  pts.forEach(([x, z], i) => { if (i) sh.lineTo(x, -z); else sh.moveTo(x, -z); });
+  const g = new THREE.ShapeGeometry(sh, 2); g.rotateX(-Math.PI / 2);
+  const m = new THREE.Mesh(g, mat); m.position.y = y; m.receiveShadow = true; W.root.add(m);
+  return m;
+}
+function flatRect(cx, cz, w, d, y, mat) { return groundShape([[cx - w / 2, cz - d / 2], [cx + w / 2, cz - d / 2], [cx + w / 2, cz + d / 2], [cx - w / 2, cz + d / 2]], y, mat); }
+
+// ---------- Eymir: the lake, a pier and sailing boats ----------
+function buildLake(L) {
+  W.water = L;
+  const at = (t, grow) => { const r = 1 + (L.wob || 0) * Math.sin(t * 3 + 1); return [L.x + Math.cos(t) * (L.rx * r + grow), L.z + Math.sin(t) * (L.rz * r + grow)]; };
+  const ring = (grow) => Array.from({ length: 96 }, (_, i) => at((i / 96) * Math.PI * 2, grow));
+  groundShape(ring(10), 0.02, new THREE.MeshLambertMaterial({ color: col(0xd9cba2), polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }));
+  const rip = texLabel(256, 256, (g, w, h) => {
+    g.fillStyle = '#3f7fa8'; g.fillRect(0, 0, w, h);
+    for (let i = 0; i < 70; i++) {
+      const x = rr(0, w), y = rr(0, h), l = rr(14, 40);
+      g.strokeStyle = `rgba(225,242,255,${rr(0.12, 0.35)})`; g.lineWidth = rr(1, 2.2);
+      g.beginPath(); g.moveTo(x, y); g.quadraticCurveTo(x + l / 2, y - rr(2, 5), x + l, y); g.stroke();
+    }
+  });
+  rip.wrapS = rip.wrapT = THREE.RepeatWrapping; rip.repeat.set(1 / 22, 1 / 22);
+  const water = groundShape(ring(0), 0.05, new THREE.MeshPhongMaterial({ map: rip, color: col(0xffffff), specular: col(0x2c4d63), shininess: 35, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+  W.anim.push((dt, time) => { rip.offset.set(time * 0.0009, time * 0.0004); });
+  // a wooden pier out from the south shore, with a little boathouse
+  const [px, pz] = at(-Math.PI / 2 - 0.25, 4), parts = [];
+  parts.push([boxAt(3.2, 0.3, 34, 0, 0.9, 17), 0x8a6a48]);
+  for (let k = 0; k <= 4; k++) for (const sx of [-1.4, 1.4]) parts.push([cylAt(0.18, 0.18, 1.6, 6, sx, 0.4, k * 8.2), 0x5c4630]);
+  parts.push([boxAt(7, 3.2, 6, 0, 1.6, -4), 0xf2ede2], [boxAt(7.8, 0.5, 7, 0, 3.45, -4), 0x2f6b4a]);
+  const pier = new THREE.Mesh(mergeColored(parts), VCMAT()); pier.position.set(px, 0, pz); pier.rotation.y = Math.atan2(L.x - px, L.z - pz); pier.castShadow = true; W.root.add(pier);
+  // sailing boats
+  const sail = new THREE.BufferGeometry();
+  sail.setAttribute('position', new THREE.Float32BufferAttribute([0, 1.3, -1.6, 0, 8.2, -1.2, 0, 1.3, 2.4], 3)); sail.computeVertexNormals();
+  const boatMat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
+  for (let i = 0; i < 7; i++) {
+    const t = rr(0, Math.PI * 2), k = rr(0.15, 0.7), [bx, bz] = at(t, 0), x = L.x + (bx - L.x) * k, z = L.z + (bz - L.z) * k;
+    const hull = pick([0xf4f4f4, 0xc3120c, 0x1d5fd6, 0xffc629]);
+    const g = mergeColored([[boxAt(1.7, 0.7, 5.2, 0, 0.35, 0), hull], [boxAt(1.2, 0.2, 3.6, 0, 0.8, 0.2), 0xd9c4a0], [cylAt(0.07, 0.09, 8.2, 6, 0, 4.4, -1.4), 0xdadde2], [sail, 0xfafafa]]);
+    const m = new THREE.Mesh(g, boatMat); m.position.set(x, 0.05, z); m.rotation.y = rr(0, 6.28); m.castShadow = true; W.root.add(m);
+    const ph = rr(0, 6);
+    W.anim.push((dt, time) => { m.rotation.z = Math.sin(time * 1.3 + ph) * 0.05; m.rotation.x = Math.sin(time * 1.1 + ph * 2) * 0.03; });
+  }
+  void water;
+}
+
+// ---------- Çankaya: the Atakule tower on a shopping centre ----------
+function buildAtakule(p) {
+  const H = 92, grp = new THREE.Group(); grp.position.set(p.x, 0, p.z);
+  const body = mergeColored([
+    [cylAt(38, 38, 0.3, 48, 0, 0.15, 0), 0xcdc4b3],
+    [boxAt(58, 12, 36, 0, 6, 0), 0xe9e2d4], [boxAt(60, 1, 38, 0, 12.5, 0), 0x8e979f], [boxAt(24, 4, 20, 0, 15, 0), 0xdcd5c8],
+    [cylAt(4.6, 6.6, H, 28, 0, H / 2, 0), 0xe9e4db], [cylAt(5.2, 5.2, 1.2, 28, 0, H * 0.33, 0), 0xc9c2b6], [cylAt(5.0, 5.0, 1.2, 28, 0, H * 0.66, 0), 0xc9c2b6],
+    [cylAt(13.2, 6.2, 6.5, 40, 0, H + 1.2, 0), 0xdcd6cb], [cylAt(14.2, 14.2, 0.9, 40, 0, H + 11.6, 0), 0xf1ede6],
+    [cylAt(0.45, 0.9, 16, 8, 0, H + 26, 0), 0xb4b9bf],
+  ]);
+  const m = new THREE.Mesh(body, VCMAT()); m.castShadow = true; m.receiveShadow = true; grp.add(m);
+  const glass = new THREE.Mesh(cylAt(13.8, 13.8, 7, 40, 0, H + 7.8, 0), new THREE.MeshPhongMaterial({ color: col(0x39668c), specular: col(0xffe0b8), shininess: 90 }));
+  glass.castShadow = true; grp.add(glass);
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(12.5, 32, 10, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshLambertMaterial({ color: col(0xe3ddd2) }));
+  dome.scale.y = 0.5; dome.position.y = H + 12; dome.castShadow = true; grp.add(dome);
+  // the mall's name, facing the circuit
+  const sign = texLabel(1024, 160, (g, w, h) => { g.fillStyle = '#12161f'; g.fillRect(0, 0, w, h); g.fillStyle = '#ffc629'; g.font = `italic 900 104px ${FONT_D}`; g.textAlign = 'center'; g.textBaseline = 'middle'; fitText(g, 'ATAKULE', w / 2, h / 2 + 4, w - 60); });
+  for (const r of [0, Math.PI]) { const sp = new THREE.Mesh(new THREE.PlaneGeometry(22, 3.4), new THREE.MeshBasicMaterial({ map: sign, toneMapped: false })); sp.position.set(Math.sin(r) * 18.1, 9, Math.cos(r) * 18.1); sp.rotation.y = r; grp.add(sp); }
+  W.root.add(grp);
+  reserve(p.x, p.z, 44);
+}
+
+// ---------- Esenboğa: runway markings, terminal, tower, hangars and parked planes ----------
+function buildAirport(A) {
+  const T = TRACK, L = T.L;
+  const tarmac = new THREE.MeshLambertMaterial({ color: col(0x6c7074), polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+  for (const [x, z, w, d] of A.aprons) { flatRect(x, z, w, d, 0.012, tarmac); reserve(x, z, Math.min(w, d) / 2); for (let k = -w / 2 + 20; k < w / 2; k += 40) reserve(x + k, z, d / 2 + 4); }
+  // the runway is the main straight: threshold stripes, numbers and a dashed centre line
+  const keys = texLabel(512, 256, (g, w, h) => { g.fillStyle = '#f2f2f2'; for (let i = 0; i < 8; i++) if (i !== 3 && i !== 4) g.fillRect(14 + i * 62, 8, 34, h - 16); });
+  const num = (t) => texLabel(256, 256, (g, w, h) => { g.fillStyle = 'rgba(242,242,242,.92)'; g.font = `900 190px ${FONT_U}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(t, w / 2, h / 2 + 8); });
+  roadDecal(17, 22, keys, L - 330, 0, 0.061, { opacity: 0.95 });
+  roadDecal(9, 11, num('03'), L - 300, 0, 0.062);
+  const k2 = roadDecal(17, 22, keys, 452, 0, 0.061, { opacity: 0.95 }); void k2;
+  const n2 = roadDecal(9, 11, num('21'), 424, 0, 0.062); n2.rotation.y += Math.PI;
+  const dash = texLabel(64, 256, (g, w, h) => { g.fillStyle = 'rgba(242,242,242,.9)'; g.fillRect(20, 0, 24, h * 0.55); });
+  dash.wrapT = THREE.RepeatWrapping; dash.wrapS = THREE.ClampToEdgeWrapping;
+  const cl = new THREE.MeshLambertMaterial({ map: dash, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -6 });
+  for (const [a, b] of [[L - 285, L - 70], [168, 400]]) {
+    const i0 = Math.floor(a / T.ds), cnt = Math.floor((b - a) / T.ds);
+    const m = new THREE.Mesh(stripGeo(T, -0.45, 0.45, 0.058, 0.058, { i0, cnt, vLen: 30 }), cl); m.renderOrder = 2; m.receiveShadow = true; W.root.add(m);
+  }
+  // terminal with a glass front, the name on its roof and two jet bridges
+  const tr = A.terminal, tg = new THREE.Group(); tg.position.set(tr.x, 0, tr.z);
+  const front = texLabel(1024, 128, (g, w, h) => { g.fillStyle = '#243847'; g.fillRect(0, 0, w, h); for (let x = 0; x < w; x += 32) { g.fillStyle = x % 64 ? '#5b7f9a' : '#6f93ad'; g.fillRect(x + 2, 6, 28, h - 12); } });
+  front.wrapS = THREE.RepeatWrapping; front.repeat.set(4, 1);
+  const tb = new THREE.Mesh(new THREE.BoxGeometry(190, 16, 38), [0, 1, 2, 3, 4, 5].map((i) => i === 5 ? new THREE.MeshPhongMaterial({ map: front, shininess: 80, specular: col(0x88aacc) }) : new THREE.MeshLambertMaterial({ color: col(i === 2 ? 0xdfe4e8 : 0xc9d0d6) })));
+  tb.position.y = 8; tb.castShadow = true; tb.receiveShadow = true; tg.add(tb);
+  const roof = mergeColored([[boxAt(200, 1.4, 46, 0, 16.9, -2), 0xeef1f3], [boxAt(4, 3, 34, -60, 18.6, 0), 0xbfc6cc], [boxAt(4, 3, 34, 60, 18.6, 0), 0xbfc6cc],
+    [boxAt(3, 5, 26, -45, 5.5, -30), 0xd4dadf], [boxAt(3, 5, 26, 55, 5.5, -30), 0xd4dadf], [boxAt(5, 7, 5, -45, 3.5, -44), 0x9aa3ab], [boxAt(5, 7, 5, 55, 3.5, -44), 0x9aa3ab]]);
+  const rm = new THREE.Mesh(roof, VCMAT()); rm.castShadow = true; tg.add(rm);
+  const name = texLabel(1024, 160, (g, w, h) => { g.fillStyle = '#ffffff'; g.fillRect(0, 0, w, h); g.fillStyle = '#c3120c'; g.font = `italic 900 100px ${FONT_D}`; g.textAlign = 'center'; g.textBaseline = 'middle'; fitText(g, 'ESENBOĞA', w / 2, h / 2 + 4, w - 60); });
+  const nb = new THREE.Mesh(new THREE.PlaneGeometry(46, 7.2), new THREE.MeshBasicMaterial({ map: name, toneMapped: false })); nb.position.set(0, 21.8, -18); nb.rotation.y = Math.PI; tg.add(nb);
+  W.root.add(tg); reserve(tr.x, tr.z, 70); reserve(tr.x - 60, tr.z, 45); reserve(tr.x + 60, tr.z, 45);
+  // control tower
+  const tw = A.tower, tower = mergeColored([[cylAt(3.2, 4.2, 38, 16, 0, 19, 0), 0xe4e7ea], [cylAt(6.8, 4.5, 3, 16, 0, 39.5, 0), 0xd0d5da], [cylAt(7.4, 7.4, 0.8, 16, 0, 46.4, 0), 0xf2f4f6], [cylAt(0.25, 0.25, 8, 6, 0, 50.8, 0), 0x9aa3ab], [boxAt(18, 7, 12, 0, 3.5, 0), 0xd8dde2]]);
+  const tm = new THREE.Mesh(tower, VCMAT()); tm.position.set(tw.x, 0, tw.z); tm.castShadow = true; W.root.add(tm);
+  const cab = new THREE.Mesh(cylAt(7, 7, 5.2, 16, 0, 43.5, 0), new THREE.MeshPhongMaterial({ color: col(0x2e5877), specular: col(0xcfe6ff), shininess: 90 }));
+  cab.position.set(tw.x, 0, tw.z); W.root.add(cab); reserve(tw.x, tw.z, 16);
+  // hangars
+  for (const [x, z, yaw] of A.hangars) {
+    const arch = new THREE.CylinderGeometry(19, 19, 52, 24, 1, false, -Math.PI / 2, Math.PI); arch.rotateX(-Math.PI / 2);
+    const g = mergeColored([[arch, 0xb9c1c8], [boxAt(38, 12, 0.6, 0, 6, 26), 0x7d868e]]);
+    const m = new THREE.Mesh(g, VCMAT()); m.position.set(x, 0, z); m.rotation.y = yaw; m.castShadow = true; m.receiveShadow = true; W.root.add(m); reserve(x, z, 34);
+  }
+  // parked planes (one shared shape, two liveries)
+  for (const [x, z, yaw] of A.planes) {
+    const m = new THREE.Mesh(planeGeometry(pick([0xc3120c, 0x1d5fd6, 0x12306b])), VCMAT()); m.position.set(x, 0, z); m.rotation.y = yaw; m.castShadow = true; W.root.add(m); reserve(x, z, 22);
+  }
+  // wind sock
+  const sk = A.sock, sock = mergeColored([[cylAt(0.12, 0.16, 7, 6, 0, 3.5, 0), 0xdadde2], [cylAt(0.55, 0.28, 1.2, 10, 0, 6.6, 0.8, Math.PI / 2), 0xff6a00], [cylAt(0.3, 0.14, 1.2, 10, 0, 6.6, 2.0, Math.PI / 2), 0xf4f4f4], [cylAt(0.28, 0.05, 1.1, 10, 0, 6.6, 3.1, Math.PI / 2), 0xff6a00]]);
+  const sm = new THREE.Mesh(sock, VCMAT()); sm.position.set(sk.x, 0, sk.z); sm.castShadow = true; W.root.add(sm);
+  W.anim.push((dt, time) => { sm.rotation.y = 0.9 + Math.sin(time * 0.7) * 0.25; });
+  // off the runway the circuit is a taxiway: yellow centre line, blue edge lights (white along the runway), signs
+  const yl = new THREE.MeshLambertMaterial({ color: col(0xf2c200), polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -6 });
+  const twA = 490, twB = L - 360, yi = Math.floor(twA / T.ds), ycnt = Math.floor((twB - twA) / T.ds);
+  const ym = new THREE.Mesh(stripGeo(T, -0.22, 0.22, 0.058, 0.058, { i0: yi, cnt: ycnt }), yl); ym.receiveShadow = true; ym.renderOrder = 2; W.root.add(ym);
+  const post = new THREE.CylinderGeometry(0.07, 0.09, 0.55, 6); post.translate(0, 0.27, 0);
+  const cap = new THREE.SphereGeometry(0.2, 8, 6); cap.translate(0, 0.62, 0);
+  const spots = { blue: [], white: [] }, tmp = {};
+  for (let s = 10; s < L; s += 24) for (const side of [1, -1]) {
+    T.pointAt(s, side * (HW + KERB + 1.6), tmp);   // on the verge inside the walls, where drivers see them
+    (s > twA - 20 && s < twB + 20 ? spots.blue : spots.white).push([tmp.x, tmp.z]);
+  }
+  const d = new THREE.Object3D(), posts = new THREE.InstancedMesh(post, new THREE.MeshLambertMaterial({ color: col(0x9aa3ab) }), spots.blue.length + spots.white.length);
+  let pi = 0;
+  for (const [kind, colr] of [['blue', 0x2f7bff], ['white', 0xfff4d6]]) {
+    const caps = new THREE.InstancedMesh(cap, new THREE.MeshBasicMaterial({ color: col(colr), toneMapped: false }), spots[kind].length);
+    spots[kind].forEach(([x, z], i) => { d.position.set(x, 0, z); d.updateMatrix(); caps.setMatrixAt(i, d.matrix); posts.setMatrixAt(pi++, d.matrix); });
+    W.root.add(caps); splitInstanced(caps, 160);
+  }
+  W.root.add(posts); splitInstanced(posts, 160);
+  // yellow taxiway signs
+  const signTex = (txt) => texLabel(256, 96, (g, w, h) => { g.fillStyle = '#111'; g.fillRect(0, 0, w, h); g.fillStyle = '#f2c200'; g.fillRect(6, 6, w - 12, h - 12); g.fillStyle = '#111'; g.font = `900 64px ${FONT_U}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(txt, w / 2, h / 2 + 4); });
+  const frame = mergeColored([[boxAt(3.3, 1.25, 0.35, 0, 2.3, 0), 0x16181c], [boxAt(0.12, 1.7, 0.12, -1.2, 0.85, 0), 0x6b7178], [boxAt(0.12, 1.7, 0.12, 1.2, 0.85, 0), 0x6b7178]]);
+  const labels = ['A ←', 'B →', 'A1', 'C ↑', 'RWY 03', 'B2', '← APRON', 'D'];
+  labels.forEach((txt, i) => {
+    const s = twA + (i + 0.5) * (twB - twA) / labels.length, side = i % 2 ? 1 : -1, g = new THREE.Group();
+    const q = placeOnTrack(g, s, side * (WALL + 4.5), 0); g.rotation.y = q.yaw + (side > 0 ? Math.PI / 2 : -Math.PI / 2) + Math.PI / 2;
+    if (isReserved(g.position.x, g.position.z, 2)) return;
+    const fm = new THREE.Mesh(frame, VCMAT()); fm.castShadow = true; g.add(fm);
+    const bd = new THREE.Mesh(new THREE.PlaneGeometry(3.1, 1.1), new THREE.MeshBasicMaterial({ map: signTex(txt), toneMapped: false })); bd.position.set(0, 2.3, 0.18); g.add(bd);
+    W.root.add(g);
+  });
+  // a plane circling the airport
+  const flyer = new THREE.Mesh(planeGeometry(0xc3120c), VCMAT()); flyer.castShadow = false; W.root.add(flyer);
+  const bx = trackBounds(0), fr = Math.max(bx.x1 - bx.x0, bx.z1 - bx.z0) * 0.75;
+  W.anim.push((dt, time) => {
+    const a = time * 0.09, y = 140 + Math.sin(time * 0.05) * 25;
+    flyer.position.set(bx.cx + Math.cos(a) * fr, y, bx.cz + Math.sin(a) * fr * 0.7);
+    flyer.rotation.set(0, Math.atan2(-Math.sin(a), Math.cos(a) * 0.7), 0); flyer.rotateZ(-0.35);
+  });
+}
+// an airliner about 36 m long, nose pointing +z
+function planeGeometry(livery) {
+  const P = [];
+  const fus = new THREE.CylinderGeometry(2.1, 2.1, 30, 16); fus.rotateX(Math.PI / 2); fus.translate(0, 4, 0); P.push([fus, 0xf4f6f8]);
+  const nose = new THREE.SphereGeometry(2.1, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2); nose.scale(1, 1.6, 1); nose.rotateX(Math.PI / 2); nose.translate(0, 4, 15); P.push([nose, 0xf4f6f8]);
+  const tail = new THREE.CylinderGeometry(2.1, 0.5, 7, 16); tail.rotateX(Math.PI / 2); tail.translate(0, 4.6, -18.4); P.push([tail, 0xf4f6f8]);
+  P.push([boxAt(0.35, 0.5, 30, 0, 3.2, 0.5), livery]);                                   // cheat line
+  const wing = (sx) => { const g = new THREE.BoxGeometry(15, 0.45, 5); g.translate(sx * 8.8, 3.1, 0); g.rotateY(sx * 0.32); return g; };
+  P.push([wing(1), 0xdfe3e7], [wing(-1), 0xdfe3e7]);
+  for (const sx of [1, -1]) { const e = new THREE.CylinderGeometry(1.05, 0.9, 3.8, 12); e.rotateX(Math.PI / 2); e.translate(sx * 6.2, 2.3, 2.6); P.push([e, 0xb8bec4]); }
+  const stab = (sx) => { const g = new THREE.BoxGeometry(6, 0.3, 2.4); g.translate(sx * 3.2, 5, -19.5); g.rotateY(sx * 0.25); return g; };
+  P.push([stab(1), 0xdfe3e7], [stab(-1), 0xdfe3e7]);
+  const fin = new THREE.BoxGeometry(0.35, 6.4, 4.2); fin.translate(0, 8.6, -19.6); P.push([fin, livery]);
+  P.push([boxAt(0.3, 1.4, 0.3, 0, 0.7, 11), 0x30343a], [boxAt(0.3, 1.8, 0.3, 2.6, 0.9, -1), 0x30343a], [boxAt(0.3, 1.8, 0.3, -2.6, 0.9, -1), 0x30343a]);   // gear
+  return mergeColored(P);
 }
 
 // =====================================================================
@@ -2734,12 +3088,12 @@ function buildGyms() {
     [cylAt(0.55, 0.55, 0.26, 18, 1.25, 0, 0, 0, Math.PI / 2), 0x16181c], [cylAt(0.45, 0.45, 0.22, 18, 1.5, 0, 0, 0, Math.PI / 2), 0xe10600],
     [cylAt(0.55, 0.55, 0.26, 18, -1.25, 0, 0, 0, Math.PI / 2), 0x16181c], [cylAt(0.45, 0.45, 0.22, 18, -1.5, 0, 0, 0, Math.PI / 2), 0xe10600],
   ]);
-  [[455, 1], [1175, -1], [1790, 1]].forEach(([s, side], i) => {
+  TDEF.gyms.forEach(([s, side], i) => {
     const lat = side * 6.6;
     const decal = roadDecal(4.6, 8.6, padTex, s, lat, 0.066, { opacity: 0.95 });
     const grp = new THREE.Group(); TRACK.pointAt(s, lat, TMP); grp.position.set(TMP.x, 0, TMP.z);
     const db = new THREE.Mesh(barG, new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 50 })); db.position.y = 4.2; db.castShadow = true; grp.add(db);
-    scene.add(grp);
+    W.root.add(grp);
     decal.visible = false; grp.visible = false;
     W.gyms.push({ i, s, lat, decal, grp, db });
   });
@@ -3293,9 +3647,9 @@ function tryPlayerAbility() {
 //  drives that bus, which applies them (Sarp's aura and the stun guard are
 //  checked where they belong).
 // =====================================================================
-const NET_VERSION = 'sbr-online-3';
+const NET_VERSION = 'sbr-online-4';
 const NET = { on: false, host: false, racing: false, peer: null, conn: null, links: new Map(), code: '', my: '', players: [], laps: 6, diff: 1,
-  sendT: 0, relayT: 0, beatT: 0, lastHost: 0, dropHits: new Map(), joining: false, attempt: 0, route: '', direct: false, seq: 0, seen: 0 };
+  sendT: 0, relayT: 0, beatT: 0, lastHost: 0, dropHits: new Map(), joining: false, attempt: 0, route: '', direct: false, seq: 0, seen: 0, track: 'anka' };
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const roomPeerId = (code) => 'sbr-anka-gp-' + code.toLowerCase();
 const busIdx = (b) => (b ? b.def.num - 1 : -1);
@@ -3362,7 +3716,7 @@ function netCreate() {
   onlineStatus('Creating a room…');
   const openRoom = () => {
     if (NET.attempt !== attempt || NET.on) return;
-    NET.on = true;
+    NET.on = true; NET.track = TDEF.id;
     NET.players = [{ pid: NET.my, drv: RACE.drvIdx, bus: RACE.busIdx, host: true }];
     onlineStatus(''); renderLobby();
   };
@@ -3564,7 +3918,9 @@ function botTakeOver(b) {
   b.ai.base = 1; b.vmul = D.vmul; b.ai.skill = D.skill; b.ai.greed = 0.8; b.ai.stopDec = {}; b.ai.lane = b.q.d; b.ai.abDelay = 2;
   b.net = null; b.netOff = null;
 }
-function lobbyMsg() { return { k: 'lobby', n: ++NET.seq, players: NET.players, laps: NET.laps, diff: NET.diff, racing: NET.racing }; }
+function lobbyMsg() { return { k: 'lobby', n: ++NET.seq, players: NET.players, laps: NET.laps, diff: NET.diff, track: NET.track, racing: NET.racing }; }
+// the host picks the circuit for the room; everybody's world follows
+function pickNetTrack(id) { if (!NET.host || NET.racing) return; NET.track = trackById(id).id; switchTrack(NET.track, false); broadcastLobby(); }
 // everybody except `except`: direct links one by one, relay players with one message on the room channel
 function sendAll(m, except) {
   let relay = false;
@@ -3584,7 +3940,7 @@ function hostStart() {
     const h = NET.players.find((p) => p.bus === bi);
     return { bus: bi, drv: h ? h.drv : free.pop(), owner: h ? h.pid : NET.my, human: !!h };
   });
-  const m = { k: 'start', n: ++NET.seq, laps: NET.laps, diff: NET.diff, entries, order: shuffle(entries.map((e, i) => i)), goAt: +(4.4 + rr(0.5, 1.3)).toFixed(2) };
+  const m = { k: 'start', n: ++NET.seq, laps: NET.laps, diff: NET.diff, track: NET.track, entries, order: shuffle(entries.map((e, i) => i)), goAt: +(4.4 + rr(0.5, 1.3)).toFixed(2) };
   NET.racing = true;
   netSend(m); netStartRace(m);
 }
@@ -3595,6 +3951,7 @@ function clientData(m) {
   if (m.k === 'lobby' || m.k === 'start') { const n = fin(m.n, 0); if (n && n < NET.seen) return; NET.seen = Math.max(NET.seen, n); }
   if (m.k === 'lobby') {
     NET.players = Array.isArray(m.players) ? m.players : []; NET.laps = m.laps; NET.diff = m.diff;
+    if (typeof m.track === 'string') { NET.track = trackById(m.track).id; if (!NET.racing && NET.track !== TDEF.id) switchTrack(NET.track, false); }
     // a friend who left mid-race: the host's bot drives their bus now
     if (NET.racing) for (const b of RACE.buses) if (b.remote && b.owner !== roomPeerId(NET.code) && !NET.players.some((p) => p.pid === b.owner)) { b.owner = roomPeerId(NET.code); b.human = false; b.net = null; b.netOff = null; }
     if (NET.racing && !m.racing) backToLobby(); else renderLobby();
@@ -3621,6 +3978,8 @@ function netStartRace(m) {
   NET.racing = true; NET.live = false; RACE.paused = false;
   RACE.laps = [3, 6, 10].includes(m.laps) ? m.laps : 6; RACE.diff = clamp(fin(m.diff, 1), 0, 2) | 0;
   fadeTo(() => {
+    const tr = trackById(m.track);
+    if (TDEF !== tr) { buildWorld(tr); afterWorld(); }
     const D = DIFF[RACE.diff];
     RACE.buses.forEach((b) => { b.remote = false; b.owner = null; b.human = false; b.isPlayer = false; b.net = null; b.netOff = null; });
     m.entries.forEach((e) => {
@@ -3913,8 +4272,9 @@ function renderLobby() {
   $('onHostOpts').hidden = !NET.host;
   $('onWait').hidden = NET.host;
   document.querySelectorAll('#onLaps button').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.v === NET.laps)));
+  document.querySelectorAll('#onTrack button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === NET.track)));
   document.querySelectorAll('#onDiff button').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.v === NET.diff)));
-  $('onWait').textContent = 'Waiting for the host to start: ' + NET.laps + ' laps · ' + DIFF[NET.diff].name + ' bots';
+  $('onWait').textContent = 'Waiting for the host to start: ' + trackById(NET.track).name + ' · ' + NET.laps + ' laps · ' + DIFF[NET.diff].name + ' bots';
 }
 function wireOnline() {
   $('btnOnline').addEventListener('click', goOnline);
@@ -4275,11 +4635,12 @@ function emitFor(b, dt) {
 const RACE = {
   state: 'boot', t: 0, laps: store.get('laps', 6), diff: store.get('diff', 1), busIdx: store.get('bus', 0), drvIdx: store.get('drv', 0),
   buses: [], player: null, firstPass: [], order: [], stateT: 0, lightsOn: 0, goAt: 0, paused: false,
-  resetCD: 0, stuckT: 0, hintT: 0, quality: store.get('quality', TOUCH ? 'medium' : 'high')
+  resetCD: 0, stuckT: 0, hintT: 0, quality: store.get('quality', TOUCH ? 'medium' : 'high'), track: store.get('track', 'anka'), trackTok: 0
 };
 if (![3, 6, 10].includes(RACE.laps)) RACE.laps = 6;
 if (!(RACE.diff >= 0 && RACE.diff <= 2)) RACE.diff = 1;
 if (!['high', 'medium', 'low'].includes(RACE.quality)) RACE.quality = 'high';
+if (!TRACKS.some((t) => t.id === RACE.track)) RACE.track = TRACKS[0].id;
 if (!(RACE.busIdx >= 0 && RACE.busIdx < BUSES.length)) RACE.busIdx = 0;
 if (!(RACE.drvIdx >= 0 && RACE.drvIdx < DRIVERS.length)) RACE.drvIdx = 0;
 
@@ -4297,6 +4658,10 @@ function initHUD() {
     H.tower.appendChild(r); H.rows.push({ el: r, p: r.children[0], c: r.children[1], n: r.children[2], g: r.children[3] });
   }
   H.lightEls = Array.from(H.lights.children);
+  buildMinimap();
+}
+// the circuit drawn once into its own canvas; the dots on top are drawn ten times a second
+function buildMinimap() {
   const mm = H.minimap, dpr = Math.min(2, window.devicePixelRatio || 1);
   mm.width = 190 * dpr; mm.height = 190 * dpr; H.mmScale = dpr;
   const T = TRACK;
@@ -4397,6 +4762,7 @@ function startRace() {
   SFX.init();
   if (NET.on) return;   // online races start from the lobby
   fadeTo(() => {
+    if (TDEF.id !== RACE.track) { buildWorld(trackById(RACE.track)); afterWorld(); }
     const p = RACE.buses[RACE.busIdx];
     RACE.player = p;
     RACE.buses.forEach((b) => { b.isPlayer = b === p; b.human = b === p; b.remote = false; b.owner = null; b.net = null; });
@@ -4426,8 +4792,8 @@ function finishRaceSetup(p, chosen) {
   for (const s of W.stops) { s.got.clear(); s.anim = -1; s.backAt = 0; s.kids.forEach((k) => { k.visible = true; k.position.copy(k.userData.home); k.scale.setScalar(k.userData.sc); }); }
   CAM.yaw = p.yaw; CAM.hint = TRACK.globalNearest(p.x, p.z); CAM.lift = 0; CAM.ox = null;
   PERF.win = PERF.sum = PERF.n = 0; PERF.ceil = 1; PERF.slow = 0; PERF.good = 0;
-  H.introTop.textContent = (NET.racing ? 'Online · ' : 'Round 1 · ') + 'Ankara · ' + RACE.laps + (RACE.laps === 1 ? ' lap' : ' laps') + ' · ' + (TRACK.L / 1000).toFixed(2) + ' km';
-  H.introTitle.textContent = 'Anka Bilim Grand Prix';
+  H.introTop.textContent = (NET.racing ? 'Online · ' : 'Round ' + (TRACKS.indexOf(TDEF) + 1) + ' · ') + TDEF.place + ' · ' + RACE.laps + (RACE.laps === 1 ? ' lap' : ' laps') + ' · ' + (TRACK.L / 1000).toFixed(2) + ' km';
+  H.introTitle.textContent = TDEF.gp;
   H.hDrvImg.src = chosen.photo; H.hDriver.style.setProperty('--dc', chosen.color); H.hDrvNick.textContent = chosen.nick;
   H.hDrvPassive.textContent = chosen.passive1.name + ' · ' + chosen.passive2.name;
   H.effHtml = ''; H.hEffs.innerHTML = '';
@@ -4465,7 +4831,7 @@ Bus.prototype.crossLine = function () {
     const lt = RACE.t - this.lapStart; this.lapTimes.push(lt);
     const isBest = lt < this.best; this.best = Math.min(this.best, lt);
     if (this.isPlayer && !this.finished) {
-      const key = 'best.' + this.def.id, pb = store.get(key, null);
+      const key = bestKey(this.def.id), pb = store.get(key, null);
       if (pb == null || lt < pb) store.set(key, lt);
       if (this.lap <= RACE.laps) toast((isBest && this.lapTimes.length > 1 ? 'Best lap ' : 'Lap ') + fmt(lt));
     }
@@ -4479,7 +4845,7 @@ Bus.prototype.crossLine = function () {
   }
   if (this.stopPen > 0 && !this.finished) { servePenalty(this); return; }
   if (this.isPlayer && !this.finished) {
-    if (this.lap === RACE.laps && RACE.laps > 1) showMsg('Final lap', 'Anka Bilim School is waiting', 'warn', 2);
+    if (this.lap === RACE.laps && RACE.laps > 1) showMsg('Final lap', 'The finish is waiting at ' + TDEF.finishAt, 'warn', 2);
     else if (this.lap > 1) showMsg('Lap ' + this.lap, 'of ' + RACE.laps, '', 1.4);
   }
 };
@@ -4487,7 +4853,7 @@ function playerFinished() {
   const p = RACE.player, pos = standings().indexOf(p) + 1;
   setState('finish');
   SFX.cheer(); SFX.fanfare();
-  showMsg(pos === 1 ? 'Winner!' : 'P' + pos, 'Finished at Anka Bilim School', pos === 1 ? 'go' : '', 3.2);
+  showMsg(pos === 1 ? 'Winner!' : 'P' + pos, 'Finished at ' + TDEF.finishAt, pos === 1 ? 'go' : '', 3.2);
   p.vmul = 0.7;
 }
 function pickups() {
@@ -4583,9 +4949,19 @@ function goTitle() {
 function goSelect() {
   SFX.init(); RACE.paused = false;
   const wasMenu = RACE.state === 'title' || RACE.state === 'about' || RACE.state === 'driver';
-  const go = () => { leaveRace(); if (!wasMenu) setLineup(); setState('select'); showScreen('scrSelect'); renderSelect(); };
-  if (wasMenu) go(); else fadeTo(go);
+  const go = () => { leaveRace(); if (TDEF.id !== RACE.track) { buildWorld(trackById(RACE.track)); afterWorld(); setLineup(); } else if (!wasMenu) setLineup(); setState('select'); showScreen('scrSelect'); renderSelect(); };
+  if (wasMenu && TDEF.id === RACE.track) go(); else fadeTo(go);
 }
+// best laps are kept per circuit and bus (the first circuit keeps the records from before there were others)
+function bestKey(busId) { return 'best.' + (TDEF.id === TRACKS[0].id ? '' : TDEF.id + '.') + busId; }
+// another circuit: the old world goes, the new one is built behind a quick fade (persist: the player's own pick)
+function switchTrack(id, persist, done) {
+  const def = trackById(id), tok = ++RACE.trackTok;
+  if (persist) { RACE.track = def.id; store.set('track', def.id); }
+  if (TDEF === def && W.root) { if (done) done(); return; }
+  fadeTo(() => { if (tok !== RACE.trackTok) return; buildWorld(def); afterWorld(); setLineup(); if (done) done(); });
+}
+function afterWorld() { buildMinimap(); CAM.hint = 0; CAM.ox = null; warmUp(); }
 function assignLineupDrivers() {
   const chosen = DRIVERS[RACE.drvIdx], others = DRIVERS.filter((d) => d !== chosen);
   let k = 0;
@@ -4643,8 +5019,10 @@ function renderSelect() {
   const labels = [['Top speed', 'speed'], ['Acceleration', 'accel'], ['Handling', 'handling'], ['Weight', 'weight']];
   $('sStats').innerHTML = labels.map(([l, k]) => '<div class="stat"><span>' + l + '</span><div class="bar">' + Array.from({ length: 10 }, (_, i) => '<i' + (i < d.stats[k] ? ' class="on"' : '') + '></i>').join('') + '</div><output>' + d.stats[k] + '</output></div>').join('');
   $('sDots').innerHTML = BUSES.map((b, i) => '<i' + (i === RACE.busIdx ? ' class="on"' : '') + '></i>').join('');
-  const pb = store.get('best.' + d.id, null);
-  $('sPB').textContent = pb != null ? 'Your best lap in the ' + d.model + ': ' + fmt(pb) : 'No lap set in the ' + d.model + ' yet.';
+  const pb = store.get(bestKey(d.id), null);
+  $('sPB').textContent = pb != null ? 'Your best lap in the ' + d.model + ' at ' + TDEF.name + ': ' + fmt(pb) : 'No lap set in the ' + d.model + ' at ' + TDEF.name + ' yet.';
+  document.querySelectorAll('#optTrack button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === RACE.track)));
+  $('sTrack').textContent = TDEF.name + ' · ' + (TRACK.L / 1000).toFixed(2) + ' km. ' + TDEF.blurb;
   document.querySelectorAll('#optLaps button').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.v === RACE.laps)));
   document.querySelectorAll('#optDiff button').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.v === RACE.diff)));
 }
@@ -4674,9 +5052,10 @@ function showResults() {
 }
 function renderResults() {
   const p = RACE.player, st = standings(), pos = st.indexOf(p) + 1;
-  $('rTitle').textContent = pos === 1 ? 'You won the Anka Bilim GP!' : pos <= 3 ? 'On the podium' : 'Chequered flag';
+  $('rTitle').textContent = pos === 1 ? 'You won the ' + TDEF.short + '!' : pos <= 3 ? 'On the podium' : 'Chequered flag';
+  $('rEyebrow').textContent = TDEF.gp + ' · Classification';
   const big = $('rBig'); big.textContent = 'P' + pos; big.classList.toggle('win', pos === 1);
-  $('rLaps').textContent = RACE.laps + (RACE.laps === 1 ? ' lap' : ' laps') + ' · ' + DIFF[RACE.diff].name;
+  $('rLaps').textContent = TDEF.name + ' · ' + RACE.laps + (RACE.laps === 1 ? ' lap' : ' laps') + ' · ' + DIFF[RACE.diff].name;
   $('rTime').textContent = fmt(p.finishTime); $('rBest').textContent = fmt(isFinite(p.best) ? p.best : null); $('rStud').textContent = p.students;
   const lead = st[0];
   $('rBody').innerHTML = st.map((b, i) => {
@@ -4708,6 +5087,7 @@ function onKeyPress(e) {
     if (code === 'ArrowLeft' || code === 'KeyA') pickBus(-1);
     else if (code === 'ArrowRight' || code === 'KeyD') pickBus(1);
     else if (code === 'Enter') startRace();
+    else if (code === 'KeyT') { const i = TRACKS.findIndex((t) => t.id === RACE.track); switchTrack(TRACKS[(i + 1) % TRACKS.length].id, true, renderSelect); }
     else if (code === 'Escape') goDriver();
     return;
   }
@@ -4798,6 +5178,7 @@ function updateVisuals(dt) {
   updateCoinsRings(dt);
   updatePlayerFX(dt);
   W.crowdTime.value = clock;
+  if (W.anim) for (const f of W.anim) f(dt, clock);
   animateStops(dt, clock);
   if (W.flag) {
     const pos = W.flag.geometry.attributes.position, base = W.flagBase;
@@ -4942,6 +5323,11 @@ function wireUI() {
   $('btnSelBack').addEventListener('click', goDriver);
   document.querySelectorAll('#optLaps button').forEach((b) => b.addEventListener('click', () => { RACE.laps = +b.dataset.v; store.set('laps', RACE.laps); renderSelect(); }));
   document.querySelectorAll('#optDiff button').forEach((b) => b.addEventListener('click', () => { RACE.diff = +b.dataset.v; store.set('diff', RACE.diff); renderSelect(); }));
+  for (const box of ['optTrack', 'onTrack']) TRACKS.forEach((t) => {
+    const b = document.createElement('button'); b.type = 'button'; b.dataset.v = t.id; b.textContent = t.short.replace(/ GP$/, ''); b.title = t.gp; b.lang = 'tr';   // Turkish capitals: BİLİM, EYMİR
+    b.addEventListener('click', () => { SFX.tone(700, 0.06, 'square', 0.05); if (box === 'optTrack') switchTrack(t.id, true, renderSelect); else pickNetTrack(t.id); });
+    $(box).appendChild(b);
+  });
   $('pauseBtn').addEventListener('click', () => togglePause(true));
   $('btnResume').addEventListener('click', () => togglePause(false));
   $('btnRestart').addEventListener('click', () => { RACE.paused = false; startRace(); });
@@ -4968,7 +5354,7 @@ function wireUI() {
   wireOnline();
   addEventListener('resize', resize);
   $('aboutList').innerHTML = BUSES.map((b) => '<li><b>' + b.num + '</b><span>' + b.brand + ' ' + b.model + ' <em>— ' + b.tag + '</em></span></li>').join('');
-  if (TOUCH) { document.body.classList.add('touch'); $('titleFoot').innerHTML = 'Pick one of nine drivers and one of six school buses. Pick up students at the yellow bus stops (5 per stop) and spend them on your driver\'s ability: tap ABILITY. Race online to race your friends, each on their own phone.'; }
+  if (TOUCH) { document.body.classList.add('touch'); $('titleFoot').innerHTML = 'Pick one of nine drivers, one of six school buses and one of four circuits. Pick up students at the yellow bus stops (5 per stop) and spend them on your driver\'s ability: tap ABILITY. Race online to race your friends, each on their own phone.'; }
 }
 async function boot(saved) {
   if (saved && typeof saved === 'object') {
@@ -4990,7 +5376,7 @@ async function boot(saved) {
   try {
     initRenderer();
     TAIL_ON.copy(col(0xff2a1a)); TAIL_OFF.copy(col(0x6a0909)); SMOKE.copy(col(0xe9e9e9)); DUST.copy(col(0xb49a74));
-    buildWorld(); buildGyms();
+    buildWorld(trackById(RACE.track));
     initFX();
     ensurePhotos();
     await loadFaces();
