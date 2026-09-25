@@ -1599,6 +1599,7 @@ function segSeg(p1x, p1z, q1x, q1z, p2x, p2z, q2x, q2z) {
   CP.ax = p1x + d1x * s; CP.az = p1z + d1z * s; CP.bx = p2x + d2x * t; CP.bz = p2z + d2z * t;
 }
 function collideBuses(A, B) {
+  if (A.remote && B.remote) return;
   const dx0 = A.x - B.x, dz0 = A.z - B.z, reach = A.halfL + B.halfL + 0.5;
   if (dx0 * dx0 + dz0 * dz0 > reach * reach) return;
   const ha = A.halfL - A.halfW, hb = B.halfL - B.halfW;
@@ -1613,15 +1614,16 @@ function collideBuses(A, B) {
   const fresh = touchPair(A, B), sa = A.speed, sb = B.speed;
   const fa = A.vx * Math.sin(A.yaw) + A.vz * Math.cos(A.yaw), fb = B.vx * Math.sin(B.yaw) + B.vz * Math.cos(B.yaw);
   const pen = rs - Math.min(dist, rs), ma = A.st.mass, mb = B.st.mass, tot = ma + mb;
-  A.x += nx * pen * (mb / tot); A.z += nz * pen * (mb / tot);
-  B.x -= nx * pen * (ma / tot); B.z -= nz * pen * (ma / tot);
+  // online, a bus driven on another device is pushed over there: here only our own bus moves
+  const wa = B.remote ? 1 : mb / tot, wb = A.remote ? 1 : ma / tot;
+  if (!A.remote) { A.x += nx * pen * wa; A.z += nz * pen * wa; }
+  if (!B.remote) { B.x -= nx * pen * wb; B.z -= nz * pen * wb; }
   const vn = (A.vx - B.vx) * nx + (A.vz - B.vz) * nz;
   if (vn < 0) {
     const j = -(1.25) * vn / (1 / ma + 1 / mb);
-    A.vx += j / ma * nx; A.vz += j / ma * nz; B.vx -= j / mb * nx; B.vz -= j / mb * nz;
     const rax = CP.ax - A.x, raz = CP.az - A.z, rbx = CP.bx - B.x, rbz = CP.bz - B.z;
-    A.yaw -= clamp((rax * nz - raz * nx) * j * 0.004 / ma, -0.05, 0.05);
-    B.yaw += clamp((rbx * nz - rbz * nx) * j * 0.004 / mb, -0.05, 0.05);
+    if (!A.remote) { A.vx += j / ma * nx; A.vz += j / ma * nz; A.yaw -= clamp((rax * nz - raz * nx) * j * 0.004 / ma, -0.05, 0.05); }
+    if (!B.remote) { B.vx -= j / mb * nx; B.vz -= j / mb * nz; B.yaw += clamp((rbx * nz - rbz * nx) * j * 0.004 / mb, -0.05, 0.05); }
     const hit = -vn;
     if (hit > 2.5 && (A.isPlayer || B.isPlayer)) { SFX.impact(Math.min(1, hit / 12)); camShake(Math.min(0.8, hit / 14)); if (Math.random() < 0.35) SFX.honkShort(); }
   }
@@ -2085,13 +2087,18 @@ function clearAbilWorld() {
   RAIN.t = 0; RAIN.max = 0; RAIN.owner = null; RAIN.bowT = 0;
   while (ITEMS.length) freeItem(ITEMS.pop());
   while (DROPS.length) DROPS.pop().mesh.visible = false;
-  RACE.check = null; hideGates(); hideLep(); closeCheckUI(); quizUI(null);
+  RACE.check = null; RACE.extChecks = []; hideGates(); hideLep(); closeCheckUI(); quizUI(null);
+  if (AFX.bow) AFX.bow.visible = false;
 }
 
 // ---------- stuns and timed speed effects ----------
 // a stun from a rival respects Sarp's aura and the stun guard; stuns a driver gives itself always apply
 function stunBus(t, dur, src) {
   if (!t || t.finished) return false;
+  if (t.remote) {   // online: the device that drives it decides (guard, aura), we guess for the pop-up
+    if (NET.racing) netEvent(t, 'stun', { dur, src: busIdx(src) });
+    return !(t.aura || t.stunGuardT > 0 || t.pitT > 0 || t.holdT > 0);
+  }
   if (src && src !== t) {
     if (t.aura || t.stunGuardT > 0 || t.pitT > 0 || t.holdT > 0) return false;
     t.rivalStunT = Math.max(t.rivalStunT, dur);
@@ -2104,6 +2111,10 @@ function stunBus(t, dur, src) {
 // the same key refreshes instead of stacking; nothing a rival gives (good or bad) touches Sarp
 function addEffect(t, key, kind, amt, time, label, src) {
   if (!t || t.finished) return false;
+  if (t.remote) {
+    if (NET.racing) netEvent(t, 'eff', { key, kind, amt, time, label, src: busIdx(src) });
+    return !(src && src !== t && t.aura);
+  }
   if (src && src !== t && t.aura) return false;
   let e = t.effects.find((x) => x.key === key);
   if (!e) { e = { key }; t.effects.push(e); }
@@ -2194,6 +2205,7 @@ const ABIL = {
       const a = CH.ataberk.ability; b.bank -= a.cost;
       startAb(b, 'rain', a.time);
       RAIN.t = a.time; RAIN.max = a.time; RAIN.loss = a.gripLoss; RAIN.owner = b;
+      if (NET.racing) netEvent(null, 'rain', { src: busIdx(b), time: a.time, loss: a.gripLoss });
       SFX.thunder(); announce(b);
       const p = RACE.player;
       if (p && p !== b) toast(p.aura ? 'Rain! Your happy aura keeps you dry' : 'Rain! −' + pct(a.gripLoss) + ' grip for ' + a.time + ' s');
@@ -2250,8 +2262,9 @@ const ABIL = {
       const a = CH.ada.ability, tg = lepTarget(b); if (!tg) return;
       b.bank -= a.cost;
       startAb(b, 'lep', a.throwTime + 0.7).target = tg.bus;
-      const o = tg.bus; o.throwT = a.throwTime; o.throwSide = tg.side; o.throwBy = b;
-      if (o.ab.key === 'song') cutSong(o, '', true);
+      const o = tg.bus;
+      if (o.remote) netEvent(o, 'throw', { src: busIdx(b), side: tg.side });
+      else { o.throwT = a.throwTime; o.throwSide = tg.side; o.throwBy = b; if (o.ab.key === 'song') cutSong(o, '', true); }
       showLep(o, tg.side); SFX.lep(Math.max(camVol(b), camVol(o))); announce(b);
       if (o.isPlayer) showMsg('', 'A leprechaun grabbed you!', 'warn', 1.4);
     },
@@ -2275,18 +2288,6 @@ function lepTarget(b) {
 
 // ---------- what an ability does while it runs ----------
 const ABSTEP = {
-  field(b, dt) {
-    const R = CH.volkan.ability.radius * BUSLEN;
-    for (const o of RACE.buses) {
-      if (o === b) continue;
-      const st = b.ab.inside.get(o);
-      if (st === 'done') continue;
-      const inside = !o.finished && !o.aura && Math.hypot(o.x - b.x, o.z - b.z) < R;
-      if (inside && !st) { b.ab.inside.set(o, 'in'); o.fieldInv = true; o.fieldT = 0; if (o.isPlayer) reversedWarning(); SFX.field(camVol(o) * 0.6); }
-      else if (inside) o.fieldT += dt;
-      else if (st === 'in') { b.ab.inside.set(o, 'done'); o.fieldInv = false; }
-    }
-  },
   ball(b, dt) {
     const B = b.ab.ball, a = CH.egemen.ability;
     B.x += B.vx * dt; B.z += B.vz * dt; B.life -= dt; B.age += dt;
@@ -2319,7 +2320,6 @@ const ABSTEP = {
   },
 };
 const ABEND = {
-  field(b, ab) { for (const [o, st] of ab.inside) if (st === 'in') o.fieldInv = false; },
   ball(b, ab, hit) { ballPoof(ab.ball, hit); },
   cat(b) { setHitbox(b, 1); poofAt(b); },
   thermos(b) { poofAt(b); },
@@ -2335,13 +2335,9 @@ const ABEND = {
     if (done) { popText(b, 'ENCORE!', '#ffe14a'); if (b.isPlayer) toast('Song complete, no stun!'); }
   },
   check(b, ab) {
-    const a = CH.ali.ability.mid; let n = 0;
-    for (const r of ab.bots) {
-      if (r.pass) { popText(r.bus, 'DODGED', '#7dff6a'); continue; }
-      if (addEffect(r.bus, 'sugarCheck', 'slow', a.slow, a.slowTime, 'Sweet crisis', b)) { n++; popText(r.bus, 'SUGAR CRASH', '#ff7ab6'); }
-    }
-    if (RACE.check && !RACE.check.done) resolveCheck(false);
-    if (b.isPlayer) toast(n + ' of ' + ab.bots.length + ' rivals failed the check');
+    const n = botChecks(b, ab.bots);
+    if (RACE.check && !RACE.check.done && RACE.check.by === b) resolveCheck(false);
+    if (b.isPlayer) toast(n + ' of ' + ab.bots.length + ' bots here failed the check' + (NET.racing ? ' (players answer on their own screens)' : ''));
   },
   seek(b, ab, done) { if (done) { popText(b, 'NO SNACK…', '#c9b8ff'); if (b.isPlayer) toast('Nobody to bite: the meter is gone'); } },
   bite(b) {
@@ -2362,7 +2358,8 @@ function restoreFwd(b, f0) {
   const sy = Math.sin(b.yaw), cy = Math.cos(b.yaw), f1 = b.vx * sy + b.vz * cy;
   if (f0 > f1) { b.vx += sy * (f0 - f1); b.vz += cy * (f0 - f1); }
 }
-function onCrash(A, B, fa, fb, sa, sb) { crashFor(A, B, fa, sb); crashFor(B, A, fb, sa); }
+// each device runs the crash passives of the buses it drives
+function onCrash(A, B, fa, fb, sa, sb) { if (!A.remote) crashFor(A, B, fa, sb); if (!B.remote) crashFor(B, A, fb, sa); }
 function crashFor(b, o, f0, oSpeed) {
   const id = drvId(b);
   if (id === 'volkan') {
@@ -2577,6 +2574,7 @@ function dropCoffee(b) {
   const d = { x, z, life: a.dropLife, owner: b, hits: b.ab.drops, mesh: takeDropMesh() };
   d.mesh.position.set(x, 0.075, z); d.mesh.rotation.y = rr(0, 6.28); d.mesh.scale.setScalar(0.3); d.mesh.visible = true;
   DROPS.push(d);
+  if (NET.racing) netEvent(null, 'drop', { src: busIdx(b), x: r2(x), z: r2(z), use: b.ab.id });
 }
 function dropsStep(dt) {
   const a = CH.irem.ability.coffee;
@@ -2584,7 +2582,7 @@ function dropsStep(dt) {
     const d = DROPS[i]; d.life -= dt;
     if (d.life <= 0) { d.mesh.visible = false; DROPS.splice(i, 1); continue; }
     for (const o of RACE.buses) {
-      if (o === d.owner || d.hits.has(o) || o.finished) continue;
+      if (o === d.owner || d.hits.has(o) || o.finished || o.remote) continue;
       if (busDist(o, d.x, d.z) < o.halfW + 1.1) {
         d.hits.add(o);
         if (addEffect(o, 'coffee', 'slow', a.slow, a.slowTime, 'Coffee', d.owner)) { popText(o, 'COFFEE −' + pct(a.slow), '#e0b48a'); if (o.isPlayer) SFX.splash(); }
@@ -2599,9 +2597,10 @@ function startCheck(b) {
   const a = CH.ali.ability.mid, ab = startAb(b, 'check', a.checkTime);
   ab.bots = [];
   for (const o of RACE.buses) {
-    if (o === b || o.finished || o.aura) continue;
+    if (o === b || o.finished || o.aura || o.remote) continue;
     if (o.isPlayer) openCheck(b); else ab.bots.push({ bus: o, pass: rnd() < a.botPass });
   }
+  if (NET.racing) netEvent(null, 'check', { src: busIdx(b) });   // players on other devices get their own check
   SFX.checkStart(); announce(b, 'Sweet crisis!');
 }
 function openCheck(by) {
@@ -2621,7 +2620,18 @@ function resolveCheck(ok) {
   else { if (p && addEffect(p, 'sugarCheck', 'slow', a.slow, a.slowTime, 'Sweet crisis', c.by)) toast('Sugar crash: −' + pct(a.slow) + ' for ' + a.slowTime + ' s'); SFX.buzz(1); }
   checkResultUI(ok);
 }
+// bots that failed a reaction check are slowed when it ends
+function botChecks(by, bots) {
+  const a = CH.ali.ability.mid; let n = 0;
+  for (const r of bots) {
+    if (r.pass) { popText(r.bus, 'DODGED', '#7dff6a'); continue; }
+    if (addEffect(r.bus, 'sugarCheck', 'slow', a.slow, a.slowTime, 'Sweet crisis', by)) { n++; popText(r.bus, 'SUGAR CRASH', '#ff7ab6'); }
+  }
+  return n;
+}
 function checkTick(dt) {
+  const X = RACE.extChecks || [];
+  for (let i = X.length - 1; i >= 0; i--) { const e = X[i]; e.t += dt; if (e.t >= e.max) { botChecks(e.by, e.bots); X.splice(i, 1); } }
   const c = RACE.check; if (!c) return;
   c.t += dt;
   if (!c.done && c.t >= c.max) resolveCheck(false);
@@ -2631,9 +2641,9 @@ function canBite(o) { return !o.aura && !o.finished && !(o.pitT > 0) && !o.pitLi
 function bite(b, o) {
   const a = CH.ali.ability.full;
   startAb(b, 'bite', a.biteTime).victim = o;
-  if (o.ab.key === 'song') cutSong(o, '', true);
-  b.holdT = a.biteTime; o.holdT = a.biteTime; b.vx = b.vz = 0; o.vx = o.vz = 0;
-  o.pitPen = Math.max(o.pitPen, a.pitPenalty);
+  b.holdT = a.biteTime; b.vx = b.vz = 0;
+  if (o.remote) netEvent(o, 'bite', { src: busIdx(b), dur: a.biteTime, pen: a.pitPenalty });
+  else { if (o.ab.key === 'song') cutSong(o, '', true); o.holdT = a.biteTime; o.vx = o.vz = 0; o.pitPen = Math.max(o.pitPen, a.pitPenalty); }
   chompFX(b, o); SFX.chomp(Math.max(camVol(b), camVol(o)));
   if (o.isPlayer) showMsg('CHOMP!', 'Ali bit you: +' + a.pitPenalty + ' s at your next pit stop', 'warn', 2.2);
   if (b.isPlayer) toast('CHOMP! ' + o.driver.nick + ' waits +' + a.pitPenalty + ' s at the next pit stop');
@@ -2648,10 +2658,31 @@ function cutSong(b, why, noStun) {
 }
 
 // ---------- once per physics step, after the buses moved ----------
+// Volkan's field: every device checks the buses it drives (the field's owner may be on another device)
+function fieldCheck(dt) {
+  const R = CH.volkan.ability.radius * BUSLEN;
+  for (const t of RACE.buses) {
+    if (t.remote) continue;
+    const F = RACE.buses.find((b) => b !== t && b.ab.key === 'field');
+    if (!F) { t.fieldInv = false; t.fieldUse = ''; continue; }
+    const use = busIdx(F) + ':' + F.ab.id;
+    if (t.fieldUse !== use) { t.fieldUse = use; t.fieldState = ''; }
+    if (t.fieldState === 'done') { t.fieldInv = false; continue; }
+    const inside = !t.finished && !t.aura && Math.hypot(t.x - F.x, t.z - F.z) < R;
+    if (inside && t.fieldState !== 'in') { t.fieldState = 'in'; t.fieldInv = true; t.fieldT = 0; if (t.isPlayer) reversedWarning(); SFX.field(camVol(t) * 0.6); }
+    else if (inside) t.fieldT += dt;
+    else if (t.fieldState === 'in') { t.fieldState = 'done'; t.fieldInv = false; }
+  }
+}
 function abilStep(dt) {
   const all = RACE.buses, st = standings(), live = RACE.state === 'race';
-  if (RAIN.t > 0) RAIN.t = Math.max(0, RAIN.t - dt);
+  if (RAIN.t > 0) {
+    RAIN.t = Math.max(0, RAIN.t - dt);
+    if (RAIN.t === 0 && RAIN.owner && RAIN.owner.remote) { RAIN.bowT = 7; showBow(); SFX.rainbow(); }   // the owner's device adds the bonus
+  }
+  fieldCheck(dt);
   for (const b of all) {
+    if (b.remote) continue;
     if (b.rivalStunT > 0) { b.rivalStunT -= dt; if (b.rivalStunT <= 0) { b.rivalStunT = 0; b.stunGuardT = RULES.stunGuard; } }
     else if (b.stunGuardT > 0) b.stunGuardT = Math.max(0, b.stunGuardT - dt);
     if (b.selfStunT > 0) b.selfStunT = Math.max(0, b.selfStunT - dt);
@@ -3426,6 +3457,439 @@ function tryPlayerAbility() {
 }
 
 // =====================================================================
+//  ONLINE RACES: a room with a 4-letter code, peer to peer (PeerJS).
+//  Everybody drives their own bus on their own device and shares where
+//  it is 20 times a second. The host also drives the bots and passes
+//  every message on. Abilities that hit another bus are sent to the
+//  device that drives that bus, which applies them (so Sarp's aura and
+//  the stun guard are checked where they belong).
+// =====================================================================
+const NET_VERSION = 'sbr-online-1';
+const NET = { on: false, host: false, racing: false, peer: null, conn: null, links: new Map(), code: '', my: '', players: [], laps: 6, diff: 1, sendT: 0, dropHits: new Map(), joining: false };
+const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const roomPeerId = (code) => 'sbr-anka-gp-' + code.toLowerCase();
+const busIdx = (b) => (b ? b.def.num - 1 : -1);
+const fin = (v, d) => (typeof v === 'number' && isFinite(v) ? v : d);
+const r2 = (v) => Math.round(v * 100) / 100;
+
+// ---------- connecting ----------
+function netReady() { return typeof window.Peer === 'function'; }
+function netCreate() {
+  if (!netReady()) { onlineStatus('Online races need an internet connection: the connection library did not load.', true); return; }
+  netClose();
+  const code = Array.from({ length: 4 }, () => CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]).join('');
+  onlineStatus('Creating a room…');
+  const peer = new Peer(roomPeerId(code), { debug: 0 });
+  NET.peer = peer; NET.host = true; NET.code = code;
+  peer.on('open', (id) => {
+    NET.on = true; NET.my = id;
+    NET.players = [{ pid: id, drv: RACE.drvIdx, bus: RACE.busIdx, host: true }];
+    onlineStatus(''); renderLobby();
+  });
+  peer.on('connection', hostAccept);
+  peer.on('disconnected', () => { if (NET.peer === peer && !peer.destroyed) try { peer.reconnect(); } catch (e) { /* links that are already open keep working */ } });
+  peer.on('error', (err) => {
+    if (NET.peer !== peer) return;
+    if (err.type === 'unavailable-id') { peer.destroy(); NET.peer = null; netCreate(); return; }
+    if (err.type === 'peer-unavailable') return;
+    onlineStatus(netErrorText(err), true);
+  });
+}
+function netJoin(raw) {
+  const code = String(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (code.length !== 4) { onlineStatus('Type the 4-letter room code first.', true); return; }
+  if (!netReady()) { onlineStatus('Online races need an internet connection: the connection library did not load.', true); return; }
+  netClose();
+  onlineStatus('Looking for room ' + code + '…');
+  const peer = new Peer({ debug: 0 });
+  NET.peer = peer; NET.host = false; NET.code = code; NET.joining = true;
+  const giveUp = setTimeout(() => { if (NET.peer === peer && !NET.on) { onlineStatus('Could not reach room ' + code + '. Check the code, or try another network.', true); netClose(); } }, 15000);
+  peer.on('open', (id) => {
+    NET.my = id;
+    const conn = peer.connect(roomPeerId(code), { reliable: true, serialization: 'json' });
+    NET.conn = conn;
+    conn.on('open', () => { clearTimeout(giveUp); NET.on = true; NET.joining = false; conn.send({ k: 'hello', v: NET_VERSION, drv: RACE.drvIdx, bus: RACE.busIdx }); onlineStatus('Connected. Joining the lobby…'); });
+    conn.on('data', clientData);
+    conn.on('close', () => { if (NET.conn === conn) netLost('The host closed the room.'); });
+    conn.on('error', () => { if (NET.conn === conn) netLost('The connection to the host broke.'); });
+  });
+  peer.on('error', (err) => {
+    if (NET.peer !== peer) return;
+    clearTimeout(giveUp);
+    onlineStatus(err.type === 'peer-unavailable' ? 'There is no room with the code ' + code + '. Check the code with your friend.' : netErrorText(err), true);
+    netClose();
+  });
+}
+function netErrorText(err) {
+  const t = err && err.type;
+  if (t === 'network' || t === 'server-error' || t === 'socket-error' || t === 'socket-closed') return 'Could not reach the connection server. Check the internet connection and try again.';
+  if (t === 'browser-incompatible') return 'This browser cannot play online. Try Chrome, Edge, Firefox or Safari.';
+  if (t === 'webrtc') return 'The direct connection failed. Some school or office networks block it: try another Wi-Fi or mobile data.';
+  return 'Connection problem (' + (t || 'unknown') + '). Try again.';
+}
+// close everything and forget the room (the game itself keeps running)
+function netClose() {
+  const peer = NET.peer;
+  NET.peer = null; NET.conn = null;
+  for (const c of NET.links.values()) try { c.close(); } catch (e) { /* already closed */ }
+  NET.links.clear();
+  if (peer) try { peer.destroy(); } catch (e) { /* already gone */ }
+  NET.on = false; NET.host = false; NET.racing = false; NET.players = []; NET.code = ''; NET.joining = false; NET.dropHits.clear();
+  RACE.buses.forEach((b) => { b.remote = false; b.owner = null; b.human = false; b.net = null; });
+}
+function netLost(msg) {
+  const wasRacing = NET.racing;
+  netClose();
+  if (wasRacing || RACE.state === 'online' || RACE.state === 'results' || RACE.state === 'race' || RACE.state === 'finish') {
+    RACE.paused = false;
+    fadeTo(() => { leaveRace(); setLineup(); RACE.player = null; setState('online'); showScreen('scrOnline'); renderLobby(); onlineStatus(msg, true); });
+  } else onlineStatus(msg, true);
+}
+function netLeave() { netClose(); RACE.paused = false; goTitle(); }
+
+// ---------- the host ----------
+function hostAccept(conn) {
+  conn.on('open', () => { NET.links.set(conn.peer, conn); });
+  conn.on('data', (m) => hostData(conn, m));
+  conn.on('close', () => hostDrop(conn.peer));
+  conn.on('error', () => hostDrop(conn.peer));
+}
+const lobbyPlayer = (pid) => NET.players.find((p) => p.pid === pid);
+const takenBy = (field, v, pid) => NET.players.some((p) => p.pid !== pid && p[field] === v);
+function firstFree(field, want, pid) {
+  const n = field === 'drv' ? DRIVERS.length : BUSES.length;
+  if (want >= 0 && want < n && !takenBy(field, want, pid)) return want;
+  for (let i = 0; i < n; i++) if (!takenBy(field, i, pid)) return i;
+  return 0;
+}
+function hostData(conn, m) {
+  if (!m || typeof m !== 'object') return;
+  const pid = conn.peer;
+  if (m.k === 'hello') {
+    const deny = (why) => { conn.send({ k: 'deny', why }); setTimeout(() => { try { conn.close(); } catch (e) { /* gone */ } }, 400); };
+    if (m.v !== NET_VERSION) return deny('Your game is a different version. Reload the page (Ctrl+F5) and join again.');
+    if (NET.racing) return deny('This room is racing right now. Join again when the race is over.');
+    if (NET.players.length >= BUSES.length) return deny('The room is full: 6 players already.');
+    if (!lobbyPlayer(pid)) NET.players.push({ pid, drv: firstFree('drv', fin(m.drv, 0), pid), bus: firstFree('bus', fin(m.bus, 0), pid), host: false });
+    NET.links.set(pid, conn);
+    broadcastLobby(); SFX.tone(880, 0.1, 'triangle', 0.08);
+    return;
+  }
+  if (m.k === 'pick') { const p = lobbyPlayer(pid); if (!p || NET.racing) return; applyPick(p, m); return; }
+  if (m.k === 'st') { applyState(m.s); for (const [id, c] of NET.links) if (id !== pid && c.open) c.send(m); return; }
+  if (m.k === 'ev') { routeEvent(m, pid); return; }
+  if (m.k === 'fin') return;
+}
+function applyPick(p, m) {
+  const d = fin(m.drv, -1), b = fin(m.bus, -1);
+  if (d >= 0 && d < DRIVERS.length && !takenBy('drv', d, p.pid)) p.drv = d;
+  if (b >= 0 && b < BUSES.length && !takenBy('bus', b, p.pid)) p.bus = b;
+  broadcastLobby();
+}
+function hostDrop(pid) {
+  if (!NET.links.has(pid) && !lobbyPlayer(pid)) return;
+  NET.links.delete(pid);
+  NET.players = NET.players.filter((p) => p.pid !== pid);
+  // a player who drops out of a race hands their bus to a bot
+  for (const b of RACE.buses) if (b.owner === pid) { b.owner = NET.my; b.remote = false; b.human = false; b.isPlayer = false; botTakeOver(b); toast(b.driver.nick + ' left: a bot takes over'); }
+  broadcastLobby();
+}
+function botTakeOver(b) {
+  const D = DIFF[RACE.diff];
+  TRACK.project(b.x, b.z, b.hint, b.q); b.hint = b.q.idx; b.prevS = b.q.s;
+  b.ai.base = 1; b.vmul = D.vmul; b.ai.skill = D.skill; b.ai.greed = 0.8; b.ai.stopDec = {}; b.ai.pitAt = 40; b.ai.pit = false; b.ai.lane = b.q.d; b.ai.abDelay = 2;
+  b.net = null;
+}
+function lobbyMsg() { return { k: 'lobby', players: NET.players, laps: NET.laps, diff: NET.diff, racing: NET.racing }; }
+function broadcastLobby() {
+  const m = lobbyMsg();
+  for (const c of NET.links.values()) if (c.open) c.send(m);
+  renderLobby();
+}
+function netSend(m) {
+  if (NET.host) { for (const c of NET.links.values()) if (c.open) c.send(m); }
+  else if (NET.conn && NET.conn.open) NET.conn.send(m);
+}
+// the grid: players keep the buses they picked, bots take the rest with the drivers nobody picked
+function hostStart() {
+  if (!NET.host || NET.racing) return;
+  const free = shuffle(DRIVERS.map((d, i) => i).filter((i) => !NET.players.some((p) => p.drv === i)));
+  const entries = BUSES.map((b, bi) => {
+    const h = NET.players.find((p) => p.bus === bi);
+    return { bus: bi, drv: h ? h.drv : free.pop(), owner: h ? h.pid : NET.my, human: !!h };
+  });
+  const m = { k: 'start', laps: NET.laps, diff: NET.diff, entries, order: shuffle(entries.map((e, i) => i)), goAt: +(4.4 + rr(0.5, 1.3)).toFixed(2) };
+  NET.racing = true;
+  netSend(m); netStartRace(m);
+}
+
+// ---------- a player ----------
+function clientData(m) {
+  if (!m || typeof m !== 'object') return;
+  if (m.k === 'lobby') {
+    NET.players = Array.isArray(m.players) ? m.players : []; NET.laps = m.laps; NET.diff = m.diff;
+    if (NET.racing && !m.racing) backToLobby(); else renderLobby();
+    if (RACE.state === 'online') onlineStatus('');
+    return;
+  }
+  if (m.k === 'deny') { onlineStatus(m.why, true); netClose(); renderLobby(); return; }
+  if (m.k === 'start') { netStartRace(m); return; }
+  if (m.k === 'ST') { if (Array.isArray(m.list)) for (const s of m.list) applyState(s); return; }
+  if (m.k === 'st') { applyState(m.s); return; }
+  if (m.k === 'ev') { handleEvent(m); return; }
+}
+function sendPick(drv, bus) {
+  if (!NET.on) return;
+  if (NET.host) { const p = lobbyPlayer(NET.my); if (p) applyPick(p, { drv, bus }); }
+  else netSend({ k: 'pick', drv, bus });
+}
+
+// ---------- starting and ending a race ----------
+function netStartRace(m) {
+  SFX.init();
+  if (!m || !Array.isArray(m.entries) || !m.entries.some((e) => e.human && e.owner === NET.my)) { onlineStatus('The race started before you joined. You are in for the next one.', true); return; }
+  NET.racing = true; RACE.paused = false;
+  RACE.laps = [3, 6, 10].includes(m.laps) ? m.laps : 6; RACE.diff = clamp(fin(m.diff, 1), 0, 2) | 0;
+  fadeTo(() => {
+    const D = DIFF[RACE.diff];
+    RACE.buses.forEach((b) => { b.remote = false; b.owner = null; b.human = false; b.isPlayer = false; b.net = null; });
+    m.entries.forEach((e) => {
+      const b = RACE.buses[e.bus]; if (!b) return;
+      setDriver(b, DRIVERS[clamp(e.drv | 0, 0, DRIVERS.length - 1)]);
+      b.owner = e.owner; b.human = !!e.human; b.remote = e.owner !== NET.my; b.isPlayer = !!e.human && e.owner === NET.my;
+    });
+    const p = RACE.buses.find((b) => b.isPlayer);
+    RACE.player = p; RACE.drvIdx = DRIVERS.indexOf(p.driver); RACE.busIdx = busIdx(p);
+    m.order.forEach((ei, slot) => {
+      const e = m.entries[ei], b = RACE.buses[e.bus], g = W.grid[slot];
+      b.place(g.s - b.halfL - 0.4, g.lat);
+      b.resetRace();
+      b.ai.base = b.human ? 1 : rr(0.975, 1.0);
+      b.vmul = b.human ? 1 : D.vmul * b.ai.base;
+      b.ai.skill = D.skill * rr(0.96, 1.02); b.ai.greed = rr(0.6, 0.95); b.ai.stopDec = {}; b.ai.pitAt = rr(38, 46); b.ai.pit = false;
+      b.cp = Math.floor(b.progress / 20);
+    });
+    RACE.netGoAt = fin(m.goAt, 5);
+    finishRaceSetup(p, p.driver);
+    const humans = RACE.buses.filter((b) => b.human).length;
+    H.introHand.textContent = p.driver.nick + ' drives the No. ' + p.def.num + ' ' + p.def.model + '. ' + humans + (humans === 1 ? ' player' : ' players') + ' online, ' + (6 - humans) + ' bots. Go!';
+  });
+}
+// results screen → everybody back to the lobby (the host decides)
+function hostBackToLobby() {
+  if (!NET.host) return;
+  NET.racing = false;
+  broadcastLobby();
+  backToLobby();
+}
+function backToLobby() {
+  NET.racing = false; RACE.paused = false;
+  fadeTo(() => {
+    leaveRace();
+    RACE.buses.forEach((b) => { b.remote = false; b.owner = null; b.human = false; b.net = null; });
+    setLineup(); RACE.player = null; setState('online'); showScreen('scrOnline'); renderLobby();
+  });
+}
+
+// ---------- 20 times a second: share where the buses are ----------
+function busState(b) {
+  const ab = b.ab || {};
+  const fl = (b.braking ? 1 : 0) | (b.boosting ? 2 : 0) | (b.stunT > 0 ? 4 : 0) | (b.holdT > 0 ? 8 : 0) | (b.stunGuardT > 0 ? 16 : 0) | (b.pitT > 0 ? 32 : 0) |
+    (b.pitLim ? 64 : 0) | (b.blown ? 128 : 0) | (b.effects && b.effects.some((e) => e.key === 'rainbow') ? 256 : 0) | (b.fx && b.fx.plantT > 0 ? 512 : 0) | (b.finished ? 1024 : 0);
+  const s = {
+    i: busIdx(b), x: r2(b.x), z: r2(b.z), y: +b.yaw.toFixed(3), vx: r2(b.vx), vz: r2(b.vz), f: r2(b.fwd), st: r2(b.ctrl.steer), sl: r2(b.slip), fy: r2(b.flyY || 0),
+    lp: b.lap, pr: r2(b.progress), ft: +(b.finishTime || 0).toFixed(3), fp: b.finishPen || 0, bst: isFinite(b.best) ? +b.best.toFixed(3) : 0,
+    fl, tr: Math.round(b.tire), bw: b.blownW, ps: b.pitStops || 0, stu: b.students || 0,
+    ab: ab.key || '', ai: ab.id || 0, at: r2(ab.t || 0), am: r2(ab.max || 0),
+  };
+  if (ab.key === 'ball' && ab.ball) s.ball = [r2(ab.ball.x), r2(ab.ball.z), r2(ab.ball.age), r2(ab.ball.life)];
+  if (ab.key === 'rage' && ab.tier) s.tier = ab.tier.min;
+  return s;
+}
+function netTick(dt) {
+  if (!NET.racing) return;
+  NET.sendT += dt;
+  if (NET.sendT < 0.05) return;
+  NET.sendT = 0;
+  if (NET.host) {
+    const list = RACE.buses.filter((b) => !b.remote).map(busState);
+    const m = { k: 'ST', list };
+    for (const c of NET.links.values()) if (c.open) c.send(m);
+  } else if (RACE.player && NET.conn && NET.conn.open) NET.conn.send({ k: 'st', s: busState(RACE.player) });
+}
+function applyState(s) {
+  if (!s || typeof s !== 'object') return;
+  const b = RACE.buses[s.i | 0];
+  if (!b || !b.remote || !NET.racing) return;
+  if (!isFinite(s.x) || !isFinite(s.z) || !isFinite(s.y)) return;
+  const first = !b.net;
+  b.net = s; b.netAt = performance.now();
+  if (first) { b.x = s.x; b.z = s.z; b.yaw = s.y; b.hint = TRACK.globalNearest(b.x, b.z); }
+}
+// a bus driven on another device: glide toward where it was plus how it was moving
+function remoteStep(b, dt) {
+  const n = b.net; if (!n) return;
+  const age = Math.min(0.3, (performance.now() - b.netAt) / 1000);
+  const tx = n.x + fin(n.vx, 0) * age, tz = n.z + fin(n.vz, 0) * age;
+  const ex = tx - b.x, ez = tz - b.z;
+  if (ex * ex + ez * ez > 20 * 20) { b.x = tx; b.z = tz; b.yaw = n.y; b.hint = TRACK.globalNearest(b.x, b.z); }
+  else { const k = 1 - Math.exp(-14 * dt); b.x += ex * k; b.z += ez * k; b.yaw = lerpA(b.yaw, n.y, k); }
+  b.vx = fin(n.vx, 0); b.vz = fin(n.vz, 0); b.fwd = fin(n.f, 0); b.ctrl.steer = fin(n.st, 0); b.slip = fin(n.sl, 0); b.flyY = fin(n.fy, 0); b.yawRate = 0;
+  TRACK.project(b.x, b.z, b.hint, b.q); b.hint = b.q.idx; b.prevS = b.q.s;
+  b.lap = n.lp | 0; b.progress = fin(n.pr, b.progress);
+  const f = n.fl | 0;
+  b.braking = !!(f & 1); b.boosting = !!(f & 2);
+  b.stunT = f & 4 ? 0.5 : 0; b.holdT = f & 8 ? 0.5 : 0; b.stunGuardT = f & 16 ? 1 : 0; b.pitT = f & 32 ? 1 : 0; b.pitLim = !!(f & 64);
+  const blown = !!(f & 128);
+  if (blown !== b.blown) { b.blown = blown; b.blownW = n.bw | 0; tyreScale(b, blown ? b.blownW : -1); }
+  b.tire = fin(n.tr, 100);
+  b.fx = b.fx || {}; b.fx.plantT = f & 512 ? 0.5 : 0;
+  b.effects = f & 256 ? [{ key: 'rainbow', kind: 'bonus', amt: 0, t: 1, max: 1, label: '' }] : [];
+  if (!b.finished && (f & 1024)) { b.finished = true; b.finishTime = fin(n.ft, RACE.t); RACE.order.push(b); }
+  b.finishPen = n.fp || 0; b.best = n.bst > 0 ? n.bst : Infinity; b.pitStops = n.ps | 0; b.students = n.stu | 0;
+  // the ability that bus is using, for visuals and for effects that are checked here (the marginal field)
+  const key = typeof n.ab === 'string' ? n.ab : '';
+  if (b.ab.key !== key || b.ab.id !== n.ai) b.ab = { key, t: 0, max: 0, id: n.ai, hits: new Set() };
+  b.ab.t = fin(n.at, 0); b.ab.max = fin(n.am, 0);
+  if (key === 'ball' && Array.isArray(n.ball)) b.ab.ball = { x: n.ball[0], z: n.ball[1], age: n.ball[2], life: n.ball[3] };
+  if (key === 'rage') { const T = CH.doruk.ability.tiers; b.ab.tier = T.find((t) => t.min === n.tier) || T[0]; }
+}
+
+// ---------- abilities that hit a bus driven somewhere else ----------
+function netEvent(t, op, data) {
+  const m = Object.assign({ k: 'ev', to: t ? busIdx(t) : -1, op }, data);
+  if (NET.host) routeEvent(m, NET.my); else if (NET.conn && NET.conn.open) NET.conn.send(m);
+}
+function routeEvent(m, from) {
+  if (m.to < 0) {   // for everybody
+    for (const [id, c] of NET.links) if (id !== from && c.open) c.send(m);
+    if (from !== NET.my) handleEvent(m);
+    return;
+  }
+  const b = RACE.buses[m.to | 0]; if (!b) return;
+  if (b.owner === NET.my) handleEvent(m);
+  else { const c = NET.links.get(b.owner); if (c && c.open) c.send(m); }
+}
+function handleEvent(m) {
+  if (!NET.racing || !m) return;
+  const src = m.src >= 0 ? RACE.buses[m.src | 0] : null, t = m.to >= 0 ? RACE.buses[m.to | 0] : null;
+  const nick = src && src.driver ? src.driver.nick : 'A rival';
+  if (m.op === 'stun' && t && !t.remote) {
+    const ok = stunBus(t, fin(m.dur, 1), src);
+    popText(t, ok ? 'STUNNED' : 'IMMUNE', ok ? '#ffe14a' : '#9fe8ff');
+    if (t.isPlayer && ok) toast('Stunned by ' + nick + '!');
+  } else if (m.op === 'eff' && t && !t.remote) {
+    const kind = m.kind === 'bonus' ? 'bonus' : 'slow', amt = clamp(fin(m.amt, 0), 0, 1), time = clamp(fin(m.time, 1), 0, 20);
+    if (addEffect(t, String(m.key || 'net'), kind, amt, time, String(m.label || ''), src)) {
+      popText(t, (kind === 'bonus' ? '+' : '−') + pct(amt) + ' ' + String(m.label || '').toUpperCase(), kind === 'bonus' ? '#7dff6a' : '#ff8c7a');
+      if (t.isPlayer) toast((kind === 'bonus' ? 'Gift from ' : 'Hit by ') + nick + ': ' + (kind === 'bonus' ? '+' : '−') + pct(amt) + ' for ' + time + ' s');
+    } else popText(t, 'IMMUNE', '#9fe8ff');
+  } else if (m.op === 'bite' && t && !t.remote && src) {
+    if (!canBite(t)) return;
+    if (t.ab.key === 'song') cutSong(t, '', true);
+    t.holdT = clamp(fin(m.dur, 1.5), 0, 5); t.vx = t.vz = 0; t.pitPen = Math.max(t.pitPen, clamp(fin(m.pen, 2), 0, 10));
+    chompFX(src, t); SFX.chomp(camVol(t));
+    if (t.isPlayer) showMsg('CHOMP!', nick + ' bit you: +' + t.pitPen + ' s at your next pit stop', 'warn', 2.2);
+  } else if (m.op === 'throw' && t && !t.remote && src) {
+    if (t.aura || t.finished || t.pitT > 0 || t.pitLim || t.holdT > 0 || t.throwT > 0) return;
+    if (t.ab.key === 'song') cutSong(t, '', true);
+    t.throwT = CH.ada.ability.throwTime; t.throwSide = m.side < 0 ? -1 : 1; t.throwBy = src;
+    showLep(t, t.throwSide); SFX.lep(camVol(t));
+    if (t.isPlayer) showMsg('', 'A leprechaun grabbed you!', 'warn', 1.4);
+  } else if (m.op === 'rain' && src) {
+    RAIN.t = clamp(fin(m.time, 6), 0, 30); RAIN.max = RAIN.t; RAIN.loss = clamp(fin(m.loss, 0.2), 0, 0.9); RAIN.owner = src; SFX.thunder();
+    const p = RACE.player;
+    if (p) toast(p.aura ? 'Rain! Your happy aura keeps you dry' : 'Rain from ' + nick + '! −' + pct(RAIN.loss) + ' grip');
+  } else if (m.op === 'drop' && src) {
+    const key = (m.src | 0) + ':' + (m.use | 0);
+    if (!NET.dropHits.has(key)) NET.dropHits.set(key, new Set());
+    const d = { x: fin(m.x, 0), z: fin(m.z, 0), life: CH.irem.ability.coffee.dropLife, owner: src, hits: NET.dropHits.get(key), mesh: takeDropMesh() };
+    d.mesh.position.set(d.x, 0.075, d.z); d.mesh.rotation.y = rr(0, 6.28); d.mesh.scale.setScalar(0.3); d.mesh.visible = true;
+    DROPS.push(d);
+  } else if (m.op === 'check' && src) checkFromRemote(src);
+}
+// Ali's reaction check reached this device: the player here gets the check, bots here roll the dice
+function checkFromRemote(by) {
+  const a = CH.ali.ability.mid, bots = [];
+  for (const o of RACE.buses) {
+    if (o === by || o.remote || o.finished || o.aura) continue;
+    if (o.isPlayer) openCheck(by); else bots.push({ bus: o, pass: rnd() < a.botPass });
+  }
+  if (bots.length) RACE.extChecks.push({ t: 0, max: a.checkTime, by, bots });
+}
+
+// the human in front, for the bots' rubber band
+function leadHuman() { let best = null; for (const b of RACE.buses) if (b.human && !b.finished && (!best || b.progress > best.progress)) best = b; return best; }
+
+// ---------- the online screen ----------
+function onlineStatus(text, bad) { const el = $('onStatus'); if (!el) return; el.textContent = text || ''; el.classList.toggle('bad', !!bad); }
+function goOnline() {
+  SFX.init(); RACE.paused = false;
+  const go = () => { leaveRace(); setLineup(); RACE.player = null; setState('online'); showScreen('scrOnline'); renderLobby(); };
+  if (RACE.state === 'title' || RACE.state === 'about') go(); else fadeTo(go);
+}
+function renderLobby() {
+  const inRoom = NET.on;
+  $('onMenu').hidden = inRoom; $('onLobby').hidden = !inRoom;
+  $('onCodeTab').hidden = !inRoom || !NET.code; $('onCode').textContent = NET.code; $('onCodeBig').textContent = NET.code;
+  $('btnOnStart').hidden = !(inRoom && NET.host);
+  $('btnOnLeave').textContent = inRoom ? 'Leave room' : 'Back';
+  if (!inRoom) return;
+  const me = lobbyPlayer(NET.my);
+  $('onPlayers').innerHTML = '';
+  NET.players.forEach((p, i) => {
+    const d = DRIVERS[p.drv] || DRIVERS[0], bus = BUSES[p.bus] || BUSES[0];
+    const li = document.createElement('li'); li.style.setProperty('--dc', d.color);
+    li.innerHTML = '<img alt=""><span><b></b><small></small></span><em></em>';
+    li.querySelector('img').src = d.photo; li.querySelector('b').textContent = d.nick;
+    li.querySelector('small').textContent = 'No. ' + bus.num + ' ' + bus.brand + ' ' + bus.model;
+    li.querySelector('em').textContent = (p.host ? 'host' : 'player ' + (i + 1)) + (p.pid === NET.my ? ' · you' : '');
+    if (p.pid === NET.my) li.classList.add('me');
+    $('onPlayers').appendChild(li);
+  });
+  const bots = BUSES.length - NET.players.length;
+  $('onBots').textContent = bots ? bots + (bots === 1 ? ' bus is' : ' buses are') + ' driven by bots.' : 'Every bus has a player.';
+  // pick a driver and a bus: the ones your friends took are greyed out
+  $('onDrv').innerHTML = '';
+  DRIVERS.forEach((d, i) => {
+    const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'on-drv'; btn.style.setProperty('--dc', d.color);
+    const taken = takenBy('drv', i, NET.my);
+    btn.disabled = taken; btn.setAttribute('aria-pressed', String(!!me && me.drv === i)); btn.title = d.nick + (taken ? ' (taken)' : '');
+    btn.innerHTML = '<img alt="">'; btn.firstChild.src = d.photo; btn.firstChild.alt = d.nick;
+    btn.addEventListener('click', () => { RACE.drvIdx = i; store.set('drv', i); sendPick(i, null); SFX.tone(700, 0.06, 'square', 0.05); });
+    $('onDrv').appendChild(btn);
+  });
+  $('onBus').innerHTML = '';
+  BUSES.forEach((b, i) => {
+    const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'on-bus'; btn.style.setProperty('--sw', b.hud);
+    const taken = takenBy('bus', i, NET.my);
+    btn.disabled = taken; btn.setAttribute('aria-pressed', String(!!me && me.bus === i)); btn.title = b.brand + ' ' + b.model + (taken ? ' (taken)' : '');
+    btn.innerHTML = '<b></b><span></span>'; btn.children[0].textContent = b.num; btn.children[1].textContent = b.model;
+    btn.addEventListener('click', () => { RACE.busIdx = i; store.set('bus', i); sendPick(null, i); SFX.tone(700, 0.06, 'square', 0.05); });
+    $('onBus').appendChild(btn);
+  });
+  if (me) { const d = DRIVERS[me.drv], t = drvText(d); $('onDrvInfo').textContent = d.nick + ' · ' + t.ab.name + ' (' + t.ab.cost + ') · ' + t.p1.name + ', ' + t.p2.name; }
+  $('onHostOpts').hidden = !NET.host;
+  $('onWait').hidden = NET.host;
+  document.querySelectorAll('#onLaps button').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.v === NET.laps)));
+  document.querySelectorAll('#onDiff button').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.v === NET.diff)));
+  $('onWait').textContent = 'Waiting for the host to start: ' + NET.laps + ' laps · ' + DIFF[NET.diff].name + ' bots';
+}
+function wireOnline() {
+  $('btnOnline').addEventListener('click', goOnline);
+  $('btnCreate').addEventListener('click', netCreate);
+  $('btnJoin').addEventListener('click', () => netJoin($('onCodeIn').value));
+  $('onCodeIn').addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') netJoin($('onCodeIn').value); });
+  $('onCodeIn').addEventListener('input', (e) => { const v = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4); if (v !== e.target.value) e.target.value = v; });
+  $('btnOnStart').addEventListener('click', hostStart);
+  $('btnOnLeave').addEventListener('click', () => { if (NET.on) { netClose(); renderLobby(); onlineStatus('You left the room.'); } else { setState('title'); showScreen('scrTitle'); } });
+  $('btnCopyCode').addEventListener('click', () => { try { navigator.clipboard.writeText(NET.code); toastMenu('Code copied'); } catch (e) { /* no clipboard */ } });
+  document.querySelectorAll('#onLaps button').forEach((b) => b.addEventListener('click', () => { NET.laps = +b.dataset.v; broadcastLobby(); }));
+  document.querySelectorAll('#onDiff button').forEach((b) => b.addEventListener('click', () => { NET.diff = +b.dataset.v; broadcastLobby(); }));
+}
+function toastMenu(t) { onlineStatus(t); }
+
+// =====================================================================
 //  SOUND (Web Audio, all synthesized)
 // =====================================================================
 const SFX = {
@@ -3637,6 +4101,7 @@ function pollGamepad() {
 }
 function playerControls(b, dt) {
   const c = b.ctrl;
+  if (RACE.paused) { c.thr = 0; c.brk = 0.4; c.steer = 0; c.hb = false; c.boost = false; IN.steer = 0; return; }
   // Volkan's controls are always reversed and his field reverses everyone else's; never twice, so never back to normal
   const rev = drvId(b) === 'volkan' || b.fieldInv, inv = rev ? -1 : 1;
   const tgt = ((IN.right ? 1 : 0) - (IN.left ? 1 : 0)) * inv;
@@ -3829,7 +4294,9 @@ function drawMinimap() {
   for (const s of W.stops) { if (RACE.player && s.got.get(RACE.player) === RACE.player.lap) continue; const p = TRACK.pointAt(s.s, 0, TMP); const q = mmPt(p.x, p.z); g.fillStyle = '#ffc629'; g.beginPath(); g.arc(q[0], q[1], 3, 0, 7); g.fill(); }
   for (const b of RACE.buses) {
     if (b === RACE.player) continue;
-    const q = mmPt(b.x, b.z); g.fillStyle = b.def.hud; g.beginPath(); g.arc(q[0], q[1], 4, 0, 7); g.fill();
+    const q = mmPt(b.x, b.z);
+    if (b.human) { g.fillStyle = '#fff'; g.beginPath(); g.arc(q[0], q[1], 5.5, 0, 7); g.fill(); }   // friends online
+    g.fillStyle = b.def.hud; g.beginPath(); g.arc(q[0], q[1], 4, 0, 7); g.fill();
   }
   const pl = RACE.player; if (pl) { const q = mmPt(pl.x, pl.z); g.fillStyle = '#fff'; g.beginPath(); g.arc(q[0], q[1], 6.5, 0, 7); g.fill(); g.fillStyle = pl.def.hud; g.beginPath(); g.arc(q[0], q[1], 4.5, 0, 7); g.fill(); }
 }
@@ -3893,7 +4360,7 @@ function updateHUD(dt) {
     else if (leader.progress - b.progress > TRACK.L) g = '+1 LAP';
     else g = '+' + Math.max(0, b.gap).toFixed(3);
     r.g.textContent = g;
-    r.el.classList.toggle('me', b === p); r.el.classList.toggle('fin', b.finished);
+    r.el.classList.toggle('me', b === p); r.el.classList.toggle('fin', b.finished); r.el.classList.toggle('hum', !!b.human && b !== p);
   });
   H.tLeft.textContent = RACE.state === 'race' ? (p.lap >= RACE.laps ? 'FINAL LAP' : '') : '';
   drawMinimap();
@@ -3907,10 +4374,11 @@ function setLineup() {
 }
 function startRace() {
   SFX.init();
+  if (NET.on) return;   // online races start from the lobby
   fadeTo(() => {
     const p = RACE.buses[RACE.busIdx];
     RACE.player = p;
-    RACE.buses.forEach((b) => { b.isPlayer = b === p; });
+    RACE.buses.forEach((b) => { b.isPlayer = b === p; b.human = b === p; b.remote = false; b.owner = null; b.net = null; });
     const chosen = DRIVERS[RACE.drvIdx], pool = shuffle(DRIVERS.filter((d) => d !== chosen));
     let pi = 0;
     RACE.buses.forEach((b) => setDriver(b, b === p ? chosen : pool[pi++]));
@@ -3927,20 +4395,24 @@ function startRace() {
       b.ai.skill = D.skill * rr(0.96, 1.02); b.ai.greed = rr(0.6, 0.95); b.ai.stopDec = {}; b.ai.pitAt = rr(38, 46); b.ai.pit = false;
       b.cp = Math.floor(b.progress / 20);
     });
-    RACE.firstPass = []; RACE.order = []; RACE.t = 0; RACE.resetCD = 0; RACE.stuckT = 0;
-    for (const s of W.stops) { s.got.clear(); s.anim = -1; s.backAt = 0; s.kids.forEach((k) => { k.visible = true; k.position.copy(k.userData.home); k.scale.setScalar(k.userData.sc); }); }
-    CAM.yaw = p.yaw; CAM.hint = TRACK.globalNearest(p.x, p.z); CAM.lift = 0; CAM.ox = null;
-    RACE.perf = { t: 0, n: 0, sum: 0, done: false };
-    H.introTop.textContent = 'Round 1 · Ankara · ' + RACE.laps + (RACE.laps === 1 ? ' lap' : ' laps') + ' · ' + (TRACK.L / 1000).toFixed(2) + ' km';
-    H.introTitle.textContent = 'Anka Bilim Grand Prix';
+    finishRaceSetup(p, chosen);
     H.introHand.textContent = chosen.nick + ' drives the No. ' + p.def.num + ' ' + p.def.model + ' from the back of the grid. Go!';
-    H.hDrvImg.src = chosen.photo; H.hDriver.style.setProperty('--dc', chosen.color); H.hDrvNick.textContent = chosen.nick;
-    H.hDrvPassive.textContent = chosen.passive1.name + ' · ' + chosen.passive2.name;
-    H.effHtml = ''; H.hEffs.innerHTML = '';
-    clearAbilWorld(); clearPlayerFX(); SFX.stopSong();
-    showScreen(null);
-    setState('intro');
   });
+}
+// shared by single races and online races, once every bus is on the grid
+function finishRaceSetup(p, chosen) {
+  RACE.firstPass = []; RACE.order = []; RACE.t = 0; RACE.resetCD = 0; RACE.stuckT = 0; RACE.extChecks = [];
+  for (const s of W.stops) { s.got.clear(); s.anim = -1; s.backAt = 0; s.kids.forEach((k) => { k.visible = true; k.position.copy(k.userData.home); k.scale.setScalar(k.userData.sc); }); }
+  CAM.yaw = p.yaw; CAM.hint = TRACK.globalNearest(p.x, p.z); CAM.lift = 0; CAM.ox = null;
+  RACE.perf = { t: 0, n: 0, sum: 0, done: false };
+  H.introTop.textContent = (NET.racing ? 'Online · ' : 'Round 1 · ') + 'Ankara · ' + RACE.laps + (RACE.laps === 1 ? ' lap' : ' laps') + ' · ' + (TRACK.L / 1000).toFixed(2) + ' km';
+  H.introTitle.textContent = 'Anka Bilim Grand Prix';
+  H.hDrvImg.src = chosen.photo; H.hDriver.style.setProperty('--dc', chosen.color); H.hDrvNick.textContent = chosen.nick;
+  H.hDrvPassive.textContent = chosen.passive1.name + ' · ' + chosen.passive2.name;
+  H.effHtml = ''; H.hEffs.innerHTML = '';
+  clearAbilWorld(); clearPlayerFX(); SFX.stopSong();
+  showScreen(null);
+  setState('intro');
 }
 function setState(s) {
   RACE.state = s; RACE.stateT = 0;
@@ -3950,7 +4422,7 @@ function setState(s) {
   H.intro.hidden = s !== 'intro';
   H.lights.hidden = s !== 'countdown';
   H.hint.hidden = !(s === 'intro' || s === 'countdown');
-  if (s === 'countdown') { RACE.lightsOn = 0; RACE.goAt = 4.4 + rr(0.5, 1.3); H.lights.classList.remove('go'); H.lightEls.forEach((l) => l.classList.remove('on')); setGantryLights(0, false); }
+  if (s === 'countdown') { RACE.lightsOn = 0; RACE.goAt = NET.racing && RACE.netGoAt ? RACE.netGoAt : 4.4 + rr(0.5, 1.3); H.lights.classList.remove('go'); H.lightEls.forEach((l) => l.classList.remove('on')); setGantryLights(0, false); }
   if (s !== 'race') H.wrong.hidden = true;
 }
 function tickCountdown(dt) {
@@ -3998,7 +4470,7 @@ function pickups() {
   const L = TRACK.L;
   for (const st of W.stops) {
     for (const b of RACE.buses) {
-      if (b.lap < 1 || st.got.get(b) === b.lap) continue;
+      if (b.remote || b.finished || b.lap < 1 || st.got.get(b) === b.lap) continue;   // after the finish line nobody collects any more
       const ds = Math.abs(((b.q.s - st.s + L * 1.5) % L) - L / 2);
       if (ds < 4.5 + b.halfL * 0.6 && Math.abs(b.q.d - st.lat) < 2.2 + b.halfW) {
         st.got.set(b, b.lap);
@@ -4038,23 +4510,26 @@ function raceStep(dt) {
   RACE.t += dt;
   const all = RACE.buses;
   for (const b of all) {
+    if (b.remote) { remoteStep(b, dt); continue; }   // online: driven on another device
     if (b.isPlayer && !b.finished) playerControls(b, dt); else aiDrive(b, dt, all);
     b.impactCD = Math.max(0, b.impactCD - dt);
     b.step(dt, b.ctrl);
   }
   for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) collideBuses(all[i], all[j]);
   for (const b of all) {
-    TRACK.project(b.x, b.z, b.hint, b.q); b.hint = b.q.idx;
-    b.updateProgress();
-    tyreStep(b, dt);
+    if (!b.remote) {
+      TRACK.project(b.x, b.z, b.hint, b.q); b.hint = b.q.idx;
+      b.updateProgress();
+      tyreStep(b, dt);
+    }
     const cp = Math.floor(b.progress / 20);
     while (b.cp < cp) { b.cp++; const f = RACE.firstPass[b.cp]; if (f === undefined) { RACE.firstPass[b.cp] = RACE.t; b.gap = 0; } else b.gap = RACE.t - f; }
   }
   // gentle rubber band so rivals stay in the fight
-  const p = RACE.player, D = DIFF[RACE.diff];
-  if (p && !p.finished) for (const b of all) {
-    if (b === p || b.finished) continue;
-    const behind = clamp((p.progress - b.progress) / 300, -1, 1);
+  const p = RACE.player, D = DIFF[RACE.diff], ref = NET.racing ? leadHuman() : (p && !p.finished ? p : null);
+  if (ref) for (const b of all) {
+    if (b === ref || b.finished || b.remote || b.human) continue;
+    const behind = clamp((ref.progress - b.progress) / 300, -1, 1);
     b.vmul = D.vmul * (1 + behind * (behind > 0 ? D.up : D.down)) * (b.ai.base || 1);
   }
   pickups();
@@ -4074,10 +4549,11 @@ function resetPlayer() {
 }
 
 // ---------- screens ----------
-const SCREENS = ['scrTitle', 'scrAbout', 'scrDriver', 'scrSelect', 'scrPause', 'scrResults'];
+const SCREENS = ['scrTitle', 'scrAbout', 'scrDriver', 'scrSelect', 'scrPause', 'scrResults', 'scrOnline'];
 function showScreen(id) { SCREENS.forEach((s) => { $(s).hidden = s !== id; }); const el = id && $(id).querySelector('.btn.primary, .arrow'); if (el && !TOUCH) setTimeout(() => el.focus({ preventScroll: true }), 30); }
 function fadeTo(fn) { const f = $('fade'); f.classList.add('on'); setTimeout(() => { fn(); setTimeout(() => f.classList.remove('on'), 60); }, 360); }
 function goTitle() {
+  if (NET.on) netClose();
   RACE.paused = false;
   fadeTo(() => { leaveRace(); setLineup(); RACE.player = null; setGantryLights(0, false); setState('title'); showScreen('scrTitle'); });
 }
@@ -4153,7 +4629,7 @@ function pickBus(delta) { RACE.busIdx = (RACE.busIdx + delta + BUSES.length) % B
 function togglePause(force) {
   if (!(RACE.state === 'intro' || RACE.state === 'countdown' || RACE.state === 'race' || RACE.state === 'finish')) return;
   RACE.paused = force != null ? force : !RACE.paused;
-  if (RACE.paused) { showScreen('scrPause'); SFX.engine(0, 0, false, false, 0, 0, 0); SFX.horn(false); SFX.stopSong(); SFX.rainLevel(0); refreshPauseLabels(); }
+  if (RACE.paused) { showScreen('scrPause'); SFX.engine(0, 0, false, false, 0, 0, 0); SFX.horn(false); SFX.stopSong(); SFX.rainLevel(0); refreshPauseLabels(); $('btnRestart').hidden = NET.racing; $('btnQuit').textContent = NET.on ? 'Leave room' : 'Quit to menu'; }
   else showScreen(null);
 }
 function refreshPauseLabels() {
@@ -4166,6 +4642,11 @@ function showResults() {
   SFX.stopSong(); clearPlayerFX();
   H.hud.hidden = true; H.touch.hidden = true;
   showScreen('scrResults');
+  // online: the host takes everybody back to the lobby, players wait for the host
+  const mp = NET.on;
+  $('btnAgain').hidden = mp && !NET.host; $('btnAgain').textContent = mp ? 'Back to lobby' : 'Race again';
+  $('btnChange').hidden = mp; $('btnMenu').textContent = mp ? 'Leave room' : 'Main menu';
+  $('rWait').hidden = !(mp && !NET.host);
   renderResults();
 }
 function renderResults() {
@@ -4207,7 +4688,8 @@ function onKeyPress(e) {
     else if (code === 'Escape') goDriver();
     return;
   }
-  if (s === 'intro' && (code === 'Enter' || code === 'Space')) { setState('countdown'); return; }
+  if (s === 'online') { if (code === 'Escape') $('btnOnLeave').click(); return; }
+  if (s === 'intro' && !NET.racing && (code === 'Enter' || code === 'Space')) { setState('countdown'); return; }
   if (code === 'Escape' || code === 'KeyP') { togglePause(); return; }
   if (code === 'KeyC') { CAM.ox = null; CAM.mode = (CAM.mode + 1) % 3; store.set('cam', CAM.mode); if (RACE.player) CAM.yaw = RACE.player.yaw; toast('Camera: ' + CAM_NAMES[CAM.mode]); return; }
   if (code === 'KeyR') { resetPlayer(); return; }
@@ -4236,7 +4718,7 @@ let acc = 0, last = 0, clock = 0;
 function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min(0.1, (now - (last || now)) / 1000); last = now;
-  if (RACE.paused) { renderer.render(scene, camera); return; }
+  if (RACE.paused && !NET.racing) { renderer.render(scene, camera); return; }   // an online race keeps going under the menu
   clock += dt; RACE.stateT += dt;
   try { tick(dt); } catch (err) { if (!RACE.errLogged) { RACE.errLogged = true; console.error(err); } }
   renderer.render(scene, camera);
@@ -4249,6 +4731,7 @@ function tick(dt) {
     while (acc >= FIXED && n < 14) { raceStep(FIXED); acc -= FIXED; n++; }
     if (n >= 14) acc = 0;
   } else acc = 0;
+  netTick(dt);
   if (s === 'countdown') tickCountdown(dt);
   if (s === 'intro' && RACE.stateT > 3.6) setState('countdown');
   if (s === 'finish' && RACE.stateT > 3.8) showResults();
@@ -4263,7 +4746,7 @@ function tick(dt) {
 }
 function updateVisuals(dt) {
   const s = RACE.state;
-  if (s === 'title' || s === 'about' || s === 'select' || s === 'driver') {
+  if (s === 'title' || s === 'about' || s === 'select' || s === 'driver' || s === 'online') {
     RACE.buses.forEach((b, i) => {
       const target = s === 'select' && i === RACE.busIdx ? 25 : 18;
       const prev = b.menuS;
@@ -4300,7 +4783,7 @@ function updateVisuals(dt) {
 function updateCamera(dt) {
   const s = RACE.state;
   CAM.t += dt;
-  if (s === 'title' || s === 'about' || s === 'driver') {
+  if (s === 'title' || s === 'about' || s === 'driver' || s === 'online') {
     const t = CAM.t;
     TRACK.pointAt(44 + Math.sin(t * 0.13) * 5, Math.sin(t * 0.09) * 7, TMP);
     V1.set(TMP.x, 3.3 + Math.sin(t * 0.21) * 0.6, TMP.z);
@@ -4403,7 +4886,7 @@ function wireUI() {
   $('btnSound').addEventListener('click', () => { SFX.init(); SFX.setMuted(!SFX.muted); refreshPauseLabels(); });
   $('btnCam').addEventListener('click', () => { CAM.ox = null; CAM.mode = (CAM.mode + 1) % 3; store.set('cam', CAM.mode); refreshPauseLabels(); });
   $('btnQual').addEventListener('click', () => { const q = ['high', 'medium', 'low']; applyQuality(q[(q.indexOf(RACE.quality) + 1) % 3]); RACE.perf.done = true; refreshPauseLabels(); });
-  $('btnAgain').addEventListener('click', startRace);
+  $('btnAgain').addEventListener('click', () => { if (NET.on) hostBackToLobby(); else startRace(); });
   $('btnChange').addEventListener('click', goDriver);
   const grid = $('drvGrid');
   DRIVERS.forEach((d, i) => {
@@ -4417,11 +4900,12 @@ function wireUI() {
   $('btnMenu').addEventListener('click', goTitle);
   ['tL', 'tR', 'tGas', 'tBrake', 'tBoost', 'tDrift'].forEach((id, i) => bindTouch(id, ['left', 'right', 'up', 'down', 'boost', 'hb'][i], id === 'tBoost' ? tryPlayerAbility : null));
   $('checkCard').addEventListener('pointerdown', (e) => { e.preventDefault(); pressCheck(); });
-  $('gl').addEventListener('pointerdown', () => { SFX.init(); if (RACE.state === 'intro') setState('countdown'); });
-  document.addEventListener('visibilitychange', () => { if (document.hidden && (RACE.state === 'race' || RACE.state === 'countdown')) togglePause(true); });
+  $('gl').addEventListener('pointerdown', () => { SFX.init(); if (RACE.state === 'intro' && !NET.racing) setState('countdown'); });
+  document.addEventListener('visibilitychange', () => { if (document.hidden && !NET.racing && (RACE.state === 'race' || RACE.state === 'countdown')) togglePause(true); });
+  wireOnline();
   addEventListener('resize', resize);
   $('aboutList').innerHTML = BUSES.map((b) => '<li><b>' + b.num + '</b><span>' + b.brand + ' ' + b.model + ' <em>— ' + b.tag + '</em></span></li>').join('');
-  if (TOUCH) { document.body.classList.add('touch'); $('titleFoot').innerHTML = 'Pick one of nine drivers and one of six school buses. Pick up students at the yellow bus stops (5 per stop) and spend them on your driver\'s ability: tap ABILITY.'; }
+  if (TOUCH) { document.body.classList.add('touch'); $('titleFoot').innerHTML = 'Pick one of nine drivers and one of six school buses. Pick up students at the yellow bus stops (5 per stop) and spend them on your driver\'s ability: tap ABILITY. Race online to race your friends, each on their own phone.'; }
 }
 async function boot(saved) {
   if (saved && typeof saved === 'object') {

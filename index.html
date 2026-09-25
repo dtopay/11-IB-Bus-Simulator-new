@@ -332,6 +332,46 @@ table.cls{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;
 @media (max-width:560px){#quizCard{top:auto;bottom:calc(max(24px,env(safe-area-inset-bottom,0px)) + 190px)}}
 @media (prefers-reduced-motion:reduce){.abil.ready .abil-bar i,#revWarn.flash b,.brwin{animation:none}}
 
+/* ---------- online ---------- */
+.on-sheet{max-width:760px}
+.on-code b{letter-spacing:.18em;margin-left:6px}
+.on-body{padding:6px 24px 4px;display:flex;flex-direction:column;gap:14px}
+.on-lead{margin:0;font-size:15px;line-height:1.55;color:var(--ink);max-width:62ch}
+.on-join{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:6px}
+.on-join label{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-2);font-weight:700}
+.on-join input{font:inherit;font-family:var(--display);font-weight:900;font-style:italic;font-size:26px;letter-spacing:.3em;text-transform:uppercase;width:5.6em;padding:6px 10px;background:var(--panel-2);color:var(--ink);border:2px solid var(--line);border-radius:4px;-webkit-user-select:text;user-select:text}
+.on-join input:focus{outline:3px solid var(--yellow);outline-offset:1px}
+.on-share{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;background:rgba(255,198,41,.1);border-left:4px solid var(--yellow);padding:8px 12px}
+.on-share b{font-family:var(--display);font-style:italic;font-weight:900;font-size:24px;letter-spacing:.2em;color:var(--yellow)}
+.on-share .btn{font-size:14px;padding:8px 18px 8px 14px}
+.on-players{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px}
+.on-players li{display:flex;gap:10px;align-items:center;background:var(--panel-2);padding:6px 10px 6px 6px;border-left:4px solid var(--dc,#888)}
+.on-players li.me{background:rgba(255,198,41,.14)}
+.on-players img{width:40px;height:40px;border-radius:50%;object-fit:cover;flex:none}
+.on-players span{display:flex;flex-direction:column;min-width:0}
+.on-players b{font-family:var(--hand);font-weight:400;color:var(--yellow);font-size:16px;line-height:1.1;overflow-wrap:anywhere}
+.on-players small{font-size:12px;color:var(--ink-2)}
+.on-players em{margin-left:auto;font-style:normal;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2);white-space:nowrap}
+.on-bots,.on-info,.on-wait{margin:0;font-size:13px;color:var(--ink-2)}
+.on-wait{color:var(--yellow);font-weight:700}
+.on-pick{display:flex;flex-direction:column;gap:6px}
+.on-drvs{display:flex;flex-wrap:wrap;gap:6px}
+.on-drv{appearance:none;border:3px solid transparent;padding:0;background:none;border-radius:50%;cursor:pointer;width:48px;height:48px}
+.on-drv img{width:100%;height:100%;border-radius:50%;object-fit:cover;display:block}
+.on-drv[aria-pressed="true"]{border-color:var(--dc,#fff);transform:scale(1.08)}
+.on-drv:disabled{opacity:.28;cursor:not-allowed;filter:grayscale(1)}
+.on-buses{display:flex;flex-wrap:wrap;gap:6px}
+.on-bus{appearance:none;cursor:pointer;display:flex;gap:6px;align-items:baseline;border:1px solid var(--line);background:var(--panel-2);padding:6px 10px;font-family:var(--display);font-style:italic;color:var(--ink)}
+.on-bus b{font-weight:900;font-size:18px;color:var(--sw,#fff)}
+.on-bus span{font-weight:800;font-size:13px;text-transform:uppercase}
+.on-bus[aria-pressed="true"]{background:var(--ink);color:#0b0e13;border-color:var(--ink)}
+.on-bus:disabled{opacity:.3;cursor:not-allowed}
+.on-status{margin:0;min-height:1.4em;font-size:14px;font-weight:700;color:var(--green)}
+.on-status.bad{color:#ff8c7a}
+.on-note{margin:0;font-size:12px;color:var(--ink-3);max-width:48ch;line-height:1.45}
+.trow.hum .n::after{content:' \25CF';color:#fff;font-size:10px;vertical-align:middle}
+@media (max-width:520px){.on-body{padding:6px 14px 4px}.on-drv{width:40px;height:40px}.on-players{grid-template-columns:1fr}}
+
 /* ---------- tyres + pit ---------- */
 .tyres{display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center;width:250px;box-sizing:border-box;background:var(--panel);padding:6px 12px;font-family:var(--display);font-style:italic;font-weight:800;font-size:12px;letter-spacing:.12em;color:var(--ink-2)}
 .tyres b{font-size:14px;color:var(--ink);font-variant-numeric:tabular-nums;min-width:4ch;text-align:right;letter-spacing:.02em}
@@ -468,10 +508,11 @@ body.touch .dash{bottom:auto;top:calc(max(16px,env(safe-area-inset-top,0px)) + 1
       <p class="hand title-hand">Different brands. Same destination. Let the best bus win.</p>
       <div class="btn-row">
         <button class="btn primary" id="btnStart" disabled>Loading circuit&hellip;</button>
+        <button class="btn" id="btnOnline">Race online</button>
         <button class="btn" id="btnAbout">About the sport</button>
       </div>
       <p class="loadnote" id="loadNote">Building the Anka Bilim street circuit&hellip;</p>
-      <p class="title-foot" id="titleFoot">Pick one of nine drivers and one of six school buses. Pick up students at the yellow bus stops (5 per stop) and spend them on your driver's ability with <kbd>Shift</kbd>.<br><kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> or <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> drive &middot; <kbd>Space</kbd> drift &middot; <kbd>Shift</kbd> ability &middot; <kbd>M</kbd> sound</p>
+      <p class="title-foot" id="titleFoot">Pick one of nine drivers and one of six school buses. Pick up students at the yellow bus stops (5 per stop) and spend them on your driver's ability with <kbd>Shift</kbd>. <b>Race online</b> lets up to 6 friends race together, each on their own device.<br><kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> or <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> drive &middot; <kbd>Space</kbd> drift &middot; <kbd>Shift</kbd> ability &middot; <kbd>M</kbd> sound</p>
     </div>
   </section>
 
@@ -549,6 +590,39 @@ body.touch .dash{bottom:auto;top:calc(max(16px,env(safe-area-inset-top,0px)) + 1
     </div>
   </section>
 
+  <section id="scrOnline" class="screen scrim-full" hidden>
+    <div class="sheet on-sheet">
+      <div class="sheet-head">
+        <div><div class="eyebrow">Online &middot; up to 6 players</div><h2>Race your friends</h2></div>
+        <span class="tab on-code" id="onCodeTab" hidden>ROOM <b id="onCode"></b></span>
+      </div>
+      <div class="on-body">
+        <div id="onMenu">
+          <p class="on-lead">One of you creates a room and shares the 4-letter code. Everybody else types the code and joins. Each of you drives your own bus on your own phone or computer; empty buses are driven by bots.</p>
+          <div class="btn-row"><button class="btn primary" id="btnCreate">Create a room</button></div>
+          <div class="on-join"><label for="onCodeIn">Room code</label><input id="onCodeIn" maxlength="4" placeholder="ABCD" autocomplete="off" autocapitalize="characters" spellcheck="false" inputmode="text"><button class="btn" id="btnJoin">Join</button></div>
+        </div>
+        <div id="onLobby" hidden>
+          <div class="on-share"><span>Share the code <b id="onCodeBig"></b> with your friends.</span><button class="btn" id="btnCopyCode">Copy code</button></div>
+          <ol class="on-players" id="onPlayers"></ol>
+          <p class="on-bots" id="onBots"></p>
+          <div class="on-pick"><span class="eyebrow">Your driver</span><div class="on-drvs" id="onDrv"></div><p class="on-info" id="onDrvInfo"></p></div>
+          <div class="on-pick"><span class="eyebrow">Your bus</span><div class="on-buses" id="onBus"></div></div>
+          <div class="opts" id="onHostOpts">
+            <div class="opt"><span>Laps</span><div class="seg" id="onLaps"><button data-v="3">3</button><button data-v="6">6</button><button data-v="10">10</button></div></div>
+            <div class="opt"><span>Bots</span><div class="seg" id="onDiff"><button data-v="0">Easy</button><button data-v="1">Normal</button><button data-v="2">Hard</button></div></div>
+          </div>
+          <p class="on-wait" id="onWait">Waiting for the host to start the race&hellip;</p>
+        </div>
+        <p class="on-status" id="onStatus" role="status"></p>
+      </div>
+      <div class="sheet-foot">
+        <p class="on-note">Plays over the internet, straight between your devices. Some school networks block this; if nobody can join, try another Wi-Fi or mobile data.</p>
+        <div class="btn-row"><button class="btn primary" id="btnOnStart" hidden>Start race &#9656;</button><button class="btn" id="btnOnLeave">Back</button></div>
+      </div>
+    </div>
+  </section>
+
   <section id="scrPause" class="screen scrim-full" hidden>
     <div class="sheet" style="max-width:520px">
       <div class="sheet-head"><div><div class="eyebrow">Race paused</div><h2>Pit wall</h2></div></div>
@@ -587,6 +661,7 @@ body.touch .dash{bottom:auto;top:calc(max(16px,env(safe-area-inset-top,0px)) + 1
       </div>
       <p class="hand res-hand">Different brands. Same destination. Let the best bus win.</p>
       <p class="res-fact">Did you know? The School Bus Race was first organised by the school bus drivers' union to support bus drivers.</p>
+      <p class="res-fact" id="rWait" hidden>Waiting for the host to go back to the lobby&hellip;</p>
       <div class="sheet-foot">
         <div class="btn-row">
           <button class="btn primary" id="btnAgain">Race again</button>
@@ -601,6 +676,7 @@ body.touch .dash{bottom:auto;top:calc(max(16px,env(safe-area-inset-top,0px)) + 1
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js"></script>
 <script src="photos.js"></script>
 <script src="characters.js"></script>
 <script src="game.js"></script>

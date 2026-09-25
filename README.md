@@ -11,7 +11,7 @@ This version adds a new driver system. You pick one of **nine drivers**. Each dr
 1. Press **Start engines**, choose one of the 9 drivers, then one of the 6 buses. Drivers you don't pick are driven by bots.
 2. Drive through the yellow bus stops to pick up students: 5 per stop, 6 stops per lap.
 3. Spend your students on your driver's ability with **Shift**. Abilities have **no cooldown**; only their student cost limits them. Ali is the exception: he eats his students and pays with his sweet meter instead.
-4. Finish first at Anka Bilim School. Races are 3, 6 or 10 laps against Easy, Normal or Hard rivals.
+4. Finish first at Anka Bilim School. Races are 3, 6 or 10 laps against Easy, Normal or Hard rivals, or against your friends online (see below).
 
 The race screen shows your students (or Ali's sweet meter), whether your ability can be used right now, and how long every temporary effect still lasts.
 
@@ -29,6 +29,22 @@ The race screen shows your students (or Ali's sweet meter), whether your ability
 | M | Sound on/off |
 
 On phones and tablets, on-screen buttons appear (ABILITY uses your ability). A game controller works too.
+
+## Online races with friends
+
+Up to 6 friends can race together, each on their own phone or computer.
+
+1. One of you presses **Race online** → **Create a room** and shares the 4-letter room code.
+2. Everybody else presses **Race online**, types the code and presses **Join**.
+3. In the lobby, everybody picks a driver and a bus. Each one can be taken by one player only.
+4. The host chooses the laps and the bots' level and presses **Start race**. Empty buses are driven by bots.
+
+Every ability works between players too: stuns, slowdowns, rain, Volkan's field, Ali's reaction check and bite, and Ada's leprechaun all reach your friends' screens. When the race is over, the host takes everybody back to the lobby for the next one.
+
+- It needs an internet connection. The devices connect directly to each other with [PeerJS](https://peerjs.com/): free, no accounts.
+- The host runs the bots, so the host should keep the game open on screen.
+- If a friend can't join, some school or office networks block direct connections: try another Wi-Fi or mobile data.
+- If a player leaves in the middle of a race, a bot takes over their bus.
 
 ## Rules for all abilities
 
@@ -128,7 +144,7 @@ Each bus has its own top speed, acceleration, handling and weight.
 |---|---|
 | `index.html` | The page: layout, HUD and menus |
 | `characters.js` | The character settings: every number for the nine drivers |
-| `game.js` | The game: track, buses, physics, bots, abilities, sound |
+| `game.js` | The game: track, buses, physics, bots, abilities, online races, sound |
 | `photos.js` | The driver portraits |
 
-The 3D graphics use [three.js](https://threejs.org/) r128, loaded from cdnjs. Every sound, including Ela's song, is generated in the browser with the Web Audio API.
+The 3D graphics use [three.js](https://threejs.org/) r128 and online races use [PeerJS](https://peerjs.com/) 1.5, both loaded from cdnjs. Every sound, including Ela's song, is generated in the browser with the Web Audio API.
