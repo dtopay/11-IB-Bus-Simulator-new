@@ -21,6 +21,24 @@ const RULES = {
   contactGap: 0.3,  // touches closer together than this count as one continuous contact, not a new crash
 };
 
+/* ---------- TYRES AND PIT STOPS (switched on or off before every race) ----------
+   Three compounds like in Formula 1. life: laps a new set lasts before it is worn
+   out (the same on every circuit). pace: top speed on a fresh set. grip: cornering
+   grip on a fresh set. In the pit lane the game drives and the crew changes the tyres. */
+const TYRES = {
+  S: { name: 'Soft', color: '#ff3b30', life: 2.5, pace: 0.025, grip: 0.07 },
+  M: { name: 'Medium', color: '#ffd12a', life: 4.5, pace: 0, grip: 0 },
+  H: { name: 'Hard', color: '#f4f4f4', life: 7.5, pace: -0.03, grip: -0.05 },
+  fade: 0.02,        // a set gets up to this much slower as it wears
+  cliff: 20,         // below this % left, a set falls off the cliff...
+  cliffPace: -0.12,  // ...and at 0 % it is this much slower
+  cliffGrip: -0.3,   // ...with this much less grip
+  slideWear: 1.2,    // drifting and sliding wear the tyres this much faster
+  pitTime: 2.6,      // seconds in the box while the crew changes all four tyres
+  pitSpeed: 22,      // pit lane speed limit in m/s (80 km/h)
+  maxStops: 3,
+};
+
 const pct = (x) => (Math.round(Math.abs(x) * 1000) / 10) + '%';
 const sec = (t) => t + ' s';
 
@@ -164,7 +182,7 @@ const CHARACTERS = [
       desc: (a) => `Needs at least ${a.minMeter}% and empties the whole meter. ` +
         `${a.minMeter}–${a.mid.from - 1}%: +${pct(a.low.bonus)} speed for ${sec(a.low.time)}. ` +
         `${a.mid.from}–${a.full.from - 1}%: every other driver gets a ${sec(a.mid.checkTime)} reaction check; whoever fails is ${pct(a.mid.slow)} slower for ${sec(a.mid.slowTime)}. ` +
-        `${a.full.from}%: for ${sec(a.full.seekTime)} you hunt: the first rival you crash into is bitten for ${sec(a.full.biteTime)} (neither of you can move), then you get +${pct(a.full.bonus)} for ${sec(a.full.bonusTime)}, and they must stop for ${sec(a.full.stopPenalty)} the next time they cross the start/finish line (while they wait they are a ghost nobody can hit; at the finish the ${sec(a.full.stopPenalty)} are added to their race time). No target in time means no refund.`,
+        `${a.full.from}%: for ${sec(a.full.seekTime)} you hunt: the first rival you crash into is bitten for ${sec(a.full.biteTime)} (neither of you can move), then you get +${pct(a.full.bonus)} for ${sec(a.full.bonusTime)}, and they must stop for ${sec(a.full.stopPenalty)}: at their next pit stop when tyres and pit stops are on, otherwise the next time they cross the start/finish line (while they wait there they are a ghost nobody can hit). If they reach the finish first, the ${sec(a.full.stopPenalty)} are added to their race time. No target in time means no refund.`,
     },
   },
   {

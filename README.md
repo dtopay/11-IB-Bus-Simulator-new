@@ -25,6 +25,7 @@ The race screen shows your students (or Ali's sweet meter), whether your ability
 | H | Horn |
 | C | Change camera |
 | R | Back on track |
+| B | Box this lap, or stay out (tyres and pit stops on) |
 | P or Esc | Pause |
 | M | Sound on/off |
 
@@ -42,6 +43,23 @@ Pick the circuit on the bus screen (or press **T** there to switch). Every circu
 | **Esenboğa Airport** | 2.50 km | The runway is an 800 m straight; hairpins at both ends and a taxiway that weaves past the terminal and parked planes. |
 
 Best laps are saved for every circuit and bus.
+
+## Tyres and pit stops
+
+Switch **Tyres & pits** on or off on the bus screen (online, the host decides). With it off, nobody's tyres wear and the pit lanes are closed.
+
+| Compound | Colour | Lasts about | Pace |
+|---|---|---|---|
+| **Soft** | red | 2.5 laps | fastest |
+| **Medium** | yellow | 4.5 laps | in between |
+| **Hard** | white | 7.5 laps | slowest |
+
+- Tyres get a little slower as they wear. Below 20% they fall off a cliff and the bus gets much slower (they never burst).
+- **Before every race you set your strategy:** the set you start on, how many pit stops (up to 3), after which lap and which set to fit at each. The screen shows your stints as a bar, how long each compound lasts and how your plan compares with the fastest one the game can find (one click uses it). Online, everybody sets their own plan in the lobby.
+- **Pit stops are automatic.** On a planned lap you hear "Box, box!" and at the pit entry the game takes over: it drives the pit lane at 80 km/h, stops in the box with your bus number, the crew changes all four tyres in 2.6 seconds and you get the bus back at the pit exit. Press **B** (or **BOX** on a phone) to stop on a lap that isn't planned, or to stay out on one that is. Driving into the pit lane yourself works too.
+- Every circuit has its own pit lane: Anka Bilim on the left before the line, Eymir Lake and Atakule on the right just after it, Esenboğa Airport on the left of the runway before the line.
+- The bots pick their own strategies from the faster plans; hard bots pick the best ones.
+- Ali's bite costs the rival 2 extra seconds in the box at their next pit stop (at the finish, if they don't stop again).
 
 ## Online races with friends
 
@@ -119,7 +137,7 @@ Every ability works between players too: stuns, slowdowns, rain, Volkan's field,
 
 - **Passive 1: Student snacks.** You eat the students you pick up (in a funny, cartoon way). They fill your sweet meter instead of a student count: +2% per student.
 - **Passive 2: Desserts.** About every 18 s a donut only you can grab appears on the road ahead (one at a time): +8% sweet meter. The meter tops out at 100%.
-- **Ability: Sweet crisis** (25%+ sweet meter). Needs at least 25% and empties the whole meter. 25–49%: +10% speed for 4 s. 50–99%: every other driver gets a 1.2 s reaction check; whoever fails is 15% slower for 2 s. 100%: for 8 s you hunt: the first rival you crash into is bitten for 1.5 s (neither of you can move), then you get +18% for 4 s, and they must stop for 2 s the next time they cross the start/finish line (while they wait they are a ghost nobody can hit; at the finish the 2 s are added to their race time). No target in time means no refund.
+- **Ability: Sweet crisis** (25%+ sweet meter). Needs at least 25% and empties the whole meter. 25–49%: +10% speed for 4 s. 50–99%: every other driver gets a 1.2 s reaction check; whoever fails is 15% slower for 2 s. 100%: for 8 s you hunt: the first rival you crash into is bitten for 1.5 s (neither of you can move), then you get +18% for 4 s, and they must stop for 2 s: at their next pit stop when tyres and pit stops are on, otherwise the next time they cross the start/finish line (while they wait there they are a ghost nobody can hit). If they reach the finish first, the 2 s are added to their race time. No target in time means no refund.
 
 ### RomanceHunter (Ada Yeşil)
 
@@ -129,7 +147,7 @@ Every ability works between players too: stuns, slowdowns, rain, Volkan's field,
 
 ## Changing the numbers
 
-Every balance number for the nine drivers is in **`characters.js`**: costs, percentages, durations, chances, ranges and the common limits in `RULES`. Change a value, save, and reload the page. The texts on the driver screen are built from the same numbers, so they stay correct.
+Every balance number for the nine drivers is in **`characters.js`**: costs, percentages, durations, chances, ranges and the common limits in `RULES`. The tyre compounds and pit stops are in the same file (`TYRES`: how long each compound lasts, its pace and grip, the cliff, the time in the box and the pit lane speed). Change a value, save, and reload the page. The texts on the driver screen are built from the same numbers, so they stay correct.
 
 The student rate (5 per stop, 6 stops per lap) belongs to the track and is not in that file. In test races with bots, a bus picks up about 35–60 students in 3 laps and 75–120 in 6 laps. That is enough for Ela's 30-student song at least once in every race, and Doruk reaches the 40+ rage when he saves up.
 

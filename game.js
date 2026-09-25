@@ -72,8 +72,30 @@ function deriveStats(def) {
 
 // ---------- circuit ----------
 const HW = 10, KERB = 1.4, WALL = 15.5;
-// lateral limits for a bus centre line: the walls (or barriers) on both sides
-function latLimits(s, d, out) { out.lo = -WALL; out.hi = WALL; return out; }
+// pit lanes: every circuit has one beside a straight (TDEF.pit: s0, s1 and the side); open only with tyres and pit stops on
+const PIT = { taper: 30, gap: 38, w: 12, box: 9, open: false };
+const DIV_IN = WALL + 0.25, DIV_OUT = WALL + 0.95;
+const smooth01 = (a) => a * a * (3 - 2 * a);
+const pitSpan = (s) => { const P = TDEF.pit; return !!P && s >= P.s0 && s <= P.s1; };
+// how far out (m, toward the pit side) the pit lane reaches at s
+function pitOuter(s) {
+  const P = TDEF.pit;
+  if (!P || s < P.s0 || s > P.s1) return WALL;
+  return WALL + PIT.w * smooth01(clamp(Math.min((s - P.s0) / PIT.taper, (P.s1 - s) / PIT.taper), 0, 1));
+}
+const hasDivider = (s) => { const P = TDEF.pit; return !!P && s > P.s0 + PIT.gap && s < P.s1 - PIT.gap; };
+const pitBoxS = (k) => TDEF.pit.s0 + PIT.gap + PIT.box / 2 + k * PIT.box;
+const inPitZone = (s, d) => PIT.open && pitSpan(s) && d * TDEF.pit.side > HW - 0.5;
+// lateral limits for a bus centre line at track distance s: the walls, and the open pit lane (the divider splits it off)
+function latLimits(s, d, out) {
+  out.lo = -WALL; out.hi = WALL;
+  if (!PIT.open || !pitSpan(s)) return out;
+  const side = TDEF.pit.side, u = d * side;
+  let uLo = -WALL, uHi = pitOuter(s);
+  if (hasDivider(s)) { if (u > (DIV_IN + DIV_OUT) / 2) uLo = DIV_OUT; else uHi = DIV_IN; }
+  if (side > 0) { out.lo = uLo; out.hi = uHi; } else { out.lo = -uHi; out.hi = -uLo; }
+  return out;
+}
 function catmull(p0, p1, p2, p3, t) {
   const d = (p, q) => Math.pow(Math.hypot(q[0] - p[0], q[1] - p[1]), 0.5) || 1e-4;
   const t0 = 0, t1 = t0 + d(p0, p1), t2 = t1 + d(p1, p2), t3 = t2 + d(p2, p3);
@@ -282,6 +304,7 @@ const TRACKS = [
     ctrl: [[0, 0], [150, 0], [290, 0], [370, 25], [405, 100], [380, 180], [300, 215], [225, 195], [165, 235], [150, 315], [195, 385], [170, 455], [95, 470], [25, 430], [-55, 445],
       [-135, 418], [-215, 442], [-295, 405], [-330, 310], [-300, 220], [-335, 130], [-300, 45], [-160, 0]],
     park: { maxX: -268 },   // the car park stage: the part of the loop west of x = -268
+    pit: { s0: 1978, s1: 2108, side: -1 },   // the pit lane (from s0 to s1, on that side)
     school: { s: 64, side: -1 },
     stands: [
       [-118, -12, -1, [['BUSES MAKE A BETTER TOMORROW ♥', '#ffffff', '#101418'], ['STUDENTS TODAY, CHAMPIONS TOMORROW', '#ffc629', '#111111'], ['SAME VEHICLES, BIGGER DREAMS ♥', '#ffffff', '#c3120c']]],
@@ -300,10 +323,11 @@ const TRACKS = [
     ctrl: [[0, 0], [180, 0], [340, 10], [440, 55], [485, 135], [470, 235], [490, 330], [535, 415], [520, 500], [455, 535], [390, 505], [375, 440], [330, 385], [250, 385],
       [165, 425], [75, 400], [-15, 440], [-110, 425], [-190, 365], [-205, 275], [-160, 195], [-215, 110], [-235, 40], [-145, 0]],
     lake: { x: 150, z: 200, rx: 240, rz: 110, wob: 0.07 },
+    pit: { s0: 60, s1: 190, side: 1 },
     stands: [
       [-95, -12, -1, [['EYMİR LOVES SCHOOL BUSES', '#ffffff', '#1d5fd6'], ['FRESH AIR, FAST BUSES', '#2fa84f', '#ffffff']]],
       [95, 230, -1, [['LAKESIDE LEGENDS', '#1d5fd6', '#ffffff'], ['FUELED BY STUDENTS', '#ffffff', '#101418'], ['MIND THE HAIRPIN!', '#ffc629', '#111111']]],
-      [-95, 38, 1, [['GO GO OKUL SERVİSİ!', '#ffc629', '#111111'], ['CRAFTER CREW ♥', '#ffffff', '#1f4fd1'], ['ANKARA 2026', '#e10600', '#ffffff']]],
+      [-95, 15, 1, [['GO GO OKUL SERVİSİ!', '#ffc629', '#111111'], ['CRAFTER CREW ♥', '#ffffff', '#1f4fd1'], ['ANKARA 2026', '#e10600', '#ffffff']]],
     ],
     stops: [[250, -1], [700, 1], [1180, -1], [1540, 1], [1850, -1], [2280, 1]],
     gyms: [[440, 1], [1330, -1], [2040, 1]],
@@ -316,11 +340,11 @@ const TRACKS = [
     ctrl: [[0, 0], [150, 0], [260, 0], [300, 20], [310, 70], [310, 180], [290, 230], [240, 240], [150, 240], [120, 260], [115, 310], [115, 380], [90, 420], [40, 425],
       [-100, 425], [-140, 405], [-150, 360], [-150, 280], [-175, 240], [-220, 230], [-270, 210], [-285, 160], [-285, 70], [-270, 20], [-220, 0], [-120, 0]],
     tower: { x: -20, z: 190 },
+    pit: { s0: 45, s1: 175, side: 1 },
     stands: [
       [-110, -12, -1, [['ÇANKAYA CHEERS FOR YOU', '#ffffff', '#101418'], ['TIGHT CORNERS, BIG HEARTS', '#ffc629', '#111111']]],
       [90, 215, -1, [['CITY OF CHAMPIONS', '#e10600', '#ffffff'], ['FUELED BY STUDENTS', '#ffffff', '#101418'], ['MASTER #4 ♥', '#ffc629', '#111111']]],
-      [-120, 38, 1, [['ATAKULE GRAND PRIX', '#12161f', '#ffc629'], ['BRAKE LATE, WIN BIG', '#ffffff', '#c3120c']]],
-      [80, 200, 1, [['OKUL SERVİSİ POWER!', '#ffc629', '#111111'], ['SUNSET SPRINT', '#ff7a00', '#ffffff'], ['GO TRANSIT GO!', '#1d5fd6', '#ffffff']]],
+      [-120, 15, 1, [['ATAKULE GRAND PRIX', '#12161f', '#ffc629'], ['BRAKE LATE, WIN BIG', '#ffffff', '#c3120c']]],
     ],
     stops: [[200, -1], [420, 1], [600, -1], [960, 1], [1180, -1], [1480, 1]],
     gyms: [[760, 1], [1060, -1], [1700, 1]],
@@ -332,6 +356,7 @@ const TRACKS = [
     blurb: 'The runway is an 800 m straight. Brake hard for the hairpins and weave between the parked planes.',
     ctrl: [[0, 0], [220, 0], [440, 0], [520, 20], [555, 75], [530, 130], [465, 145], [380, 140], [320, 165], [300, 230], [330, 300], [300, 365], [225, 380], [150, 345],
       [95, 280], [20, 260], [-60, 300], [-140, 330], [-240, 300], [-330, 230], [-420, 170], [-450, 90], [-400, 25], [-250, 0]],
+    pit: { s0: 2210, s1: 2340, side: -1 },
     airport: {
       terminal: { x: 65, z: 480 }, tower: { x: -150, z: 440 }, sock: { x: 200, z: -70 },
       aprons: [[65, 425, 240, 70], [-120, 95, 330, 70]],             // centre x, z, size x, z
@@ -640,8 +665,18 @@ function buildCircuit() {
   const topMat = new THREE.MeshLambertMaterial({ color: col(0xb9bcc0) });
   const outMat = new THREE.MeshLambertMaterial({ color: col(0x8e9296) });
   const wi0 = W.park ? (p1 + 6) % N : 0, wcnt = W.park ? N - (p1 - p0) - 12 : N, WH = 1.15;
-  for (const side of [1, -1]) {
-    const ri0 = wi0, rcnt = wcnt;
+  // the pit lane replaces the wall on its side between TDEF.pit.s0 and s1
+  const PL = TDEF.pit, pa = PL ? Math.floor(PL.s0 / T.ds) : 0, pb = PL ? Math.ceil(PL.s1 / T.ds) : 0;
+  const wallRanges = (side) => {
+    if (!PL || side !== PL.side) return [[wi0, wcnt]];
+    const a = ((pa - wi0) % N + N) % N, b = ((pb - wi0) % N + N) % N;
+    if (a >= wcnt) return [[wi0, wcnt]];
+    const r = [];
+    if (a > 0) r.push([wi0, a]);
+    if (b > a && b < wcnt) r.push([(wi0 + b) % N, wcnt - b]);
+    return r;
+  };
+  for (const side of [1, -1]) for (const [ri0, rcnt] of wallRanges(side)) {
     const d = side * WALL, d2 = side * (WALL + 0.55);
     const inner = stripGeo(T, d, d, 0, WH, { i0: ri0, cnt: rcnt, vLen: 32, swap: true, flip: side < 0, flipV: side > 0 });
     const top = side > 0 ? stripGeo(T, d, d2, WH, WH, { i0: ri0, cnt: rcnt }) : stripGeo(T, d2, d, WH, WH, { i0: ri0, cnt: rcnt });
@@ -1149,6 +1184,7 @@ function buildWorld(def) {
     TRACK = buildTrack(TDEF.ctrl);
     applyTheme(TDEF);
     buildCircuit();
+    buildPit(); setPitOpen(PIT.open);
     buildGantry();
     if (TDEF.school) buildSchool();
     buildLandmarks();
@@ -1175,6 +1211,159 @@ function disposeWorld() {
     }
   });
   scene.remove(W.root); W.root = null;
+}
+
+// =====================================================================
+//  PIT LANE: surface, walls, divider, boxes, garages and crews, beside the
+//  circuit on the side TDEF.pit names. When tyres and pit stops are off,
+//  a row of barriers closes it (PITV.closed).
+// =====================================================================
+const PITV = { crews: [], closed: null };
+function crewGeo(color) {
+  return mergeColored([
+    [boxAt(0.17, 0.85, 0.2, -0.1, 0.425, 0), 0x22262c], [boxAt(0.17, 0.85, 0.2, 0.1, 0.425, 0), 0x22262c],
+    [boxAt(0.52, 0.66, 0.3, 0, 1.18, 0), color], [boxAt(0.12, 0.6, 0.14, -0.33, 1.2, 0), color], [boxAt(0.12, 0.6, 0.14, 0.33, 1.2, 0), color],
+    [boxAt(0.28, 0.3, 0.28, 0, 1.67, 0), 0xe0b08a], [boxAt(0.32, 0.12, 0.34, 0, 1.86, 0.02), color],
+  ]);
+}
+function buildPit() {
+  PITV.crews = []; PITV.closed = null;
+  const P = TDEF.pit; if (!P) return;
+  const T = TRACK, sd = P.side, i0 = Math.floor(P.s0 / T.ds), cnt = Math.ceil(P.s1 / T.ds) - i0, WH = 1.15;
+  // strips are given as two lateral offsets, the smaller one first (so they face up)
+  const span = (a, b, y0, y1, o) => stripGeo(T, sd > 0 ? a : (s) => -val(b, s), sd > 0 ? b : (s) => -val(a, s), y0, y1, o);
+  const val = (f, s) => (typeof f === 'function' ? f(s) : f);
+  // lane surface from the road edge out to the outer pit wall
+  const laneMat = new THREE.MeshStandardMaterial({ map: texAsphalt(false, W.theme.road), roughness: 0.92, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
+  const lane = new THREE.Mesh(span(HW - 0.2, (s) => pitOuter(s) + 0.4, 0.028, 0.028, { i0, cnt, vLen: 16 }), laneMat);   // runs under the wall
+  lane.receiveShadow = true; W.root.add(lane);
+  // outer wall that follows the widening
+  const pitTex = texLabel(2048, 128, (g, w, h) => {
+    for (let i = 0; i < 4; i++) {
+      g.fillStyle = i % 2 ? '#f2f2f2' : '#1b2230'; g.fillRect(i * 512, 0, 512, h);
+      g.fillStyle = i % 2 ? '#e10600' : '#ffc629'; g.font = `italic 900 76px ${FONT_D}`; g.textAlign = 'center'; g.textBaseline = 'middle';
+      fitText(g, i % 2 ? 'PIT LANE' : 'TYRES · BOX', i * 512 + 256, 68, 470);
+    }
+  });
+  pitTex.wrapS = pitTex.wrapT = THREE.RepeatWrapping;
+  const wallAt = (s) => sd * pitOuter(s), wallOutAt = (s) => sd * (pitOuter(s) + 0.55);
+  const wallIn = new THREE.Mesh(stripGeo(T, wallAt, wallAt, 0, WH, { i0, cnt, vLen: 16, swap: true, flip: sd < 0, flipV: sd > 0 }), new THREE.MeshLambertMaterial({ map: pitTex }));
+  const wallTop = new THREE.Mesh(span((s) => pitOuter(s), (s) => pitOuter(s) + 0.55, WH, WH, { i0, cnt }), new THREE.MeshLambertMaterial({ color: col(0xb9bcc0) }));
+  const wallOut = new THREE.Mesh(stripGeo(T, wallOutAt, wallOutAt, 0, WH, { i0, cnt, flip: sd > 0 }), new THREE.MeshLambertMaterial({ color: col(0x8e9296) }));
+  wallIn.castShadow = wallTop.castShadow = true; wallIn.receiveShadow = true;
+  W.root.add(wallIn, wallTop, wallOut);
+  // red and white divider between the circuit and the pit lane
+  const da = Math.ceil((P.s0 + PIT.gap) / T.ds), dcnt = Math.floor((P.s1 - PIT.gap) / T.ds) - da, DH = 0.95;
+  const divMat = new THREE.MeshLambertMaterial({ map: texKerb() });
+  const dIn = new THREE.Mesh(stripGeo(T, sd * DIV_IN, sd * DIV_IN, 0, DH, { i0: da, cnt: dcnt, vLen: 3.2, swap: true, flip: sd < 0 }), divMat);
+  const dOut = new THREE.Mesh(stripGeo(T, sd * DIV_OUT, sd * DIV_OUT, 0, DH, { i0: da, cnt: dcnt, vLen: 3.2, swap: true, flip: sd > 0 }), divMat);
+  const dTop = new THREE.Mesh(span(DIV_IN, DIV_OUT, DH, DH, { i0: da, cnt: dcnt }), new THREE.MeshLambertMaterial({ color: col(0xf2f2f2) }));
+  dIn.castShadow = dOut.castShadow = true; W.root.add(dIn, dOut, dTop);
+  for (const s of [P.s0 + PIT.gap, P.s1 - PIT.gap]) {
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(0.9, DH + 0.1, 0.5), new THREE.MeshLambertMaterial({ color: col(0xffc629) }));
+    placeOnTrack(cap, s, sd * (DIV_IN + DIV_OUT) / 2, (DH + 0.1) / 2); W.root.add(cap);
+  }
+  // boxes painted on the lane, one per bus number
+  for (let k = 0; k < 6; k++) {
+    const d = BUSES[k];
+    const bt = texLabel(256, 512, (g, w, h) => {
+      g.fillStyle = 'rgba(255,198,41,.16)'; g.fillRect(0, 0, w, h);
+      g.strokeStyle = '#ffc629'; g.lineWidth = 12; g.strokeRect(8, 8, w - 16, h - 16);
+      g.fillStyle = d.hud; g.fillRect(8, h - 70, w - 16, 20);
+      g.fillStyle = '#f2f2f2'; g.font = `italic 900 170px ${FONT_D}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(String(d.num), w / 2, h / 2 - 20);
+      g.font = `800 48px ${FONT_D}`; g.fillText('BOX', w / 2, h / 2 + 100);
+    });
+    roadDecal(4.4, 8, bt, pitBoxS(k), sd * (WALL + 9), 0.07);
+  }
+  const lim = texLabel(512, 256, (g, w, h) => {
+    g.strokeStyle = '#f4f4f4'; g.lineWidth = 16; g.beginPath(); g.arc(w / 2, h / 2, 110, 0, Math.PI * 2); g.stroke();
+    g.fillStyle = '#f4f4f4'; g.font = `900 120px ${FONT_U}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('80', w / 2, h / 2 + 6);
+  });
+  roadDecal(5, 2.5, lim, P.s0 + PIT.gap - 6, sd * (WALL + 4), 0.07);
+  // "PIT" arrow on the road before the entry, pointing to the pit side
+  const arrow = texLabel(512, 256, (g, w, h) => {
+    if (sd > 0) { g.translate(w, 0); g.scale(-1, 1); }
+    g.fillStyle = 'rgba(245,245,245,.85)'; g.beginPath(); g.moveTo(40, h / 2); g.lineTo(150, h / 2 - 70); g.lineTo(150, h / 2 + 70); g.closePath(); g.fill();
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.font = `italic 900 120px ${FONT_D}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('PIT', w / 2 + (sd > 0 ? -60 : 60), h / 2 + 6);
+  });
+  const early = P.s0 < 120;   // a pit lane right after the line: keep the grid and the start line clear
+  roadDecal(7, 3.5, arrow, P.s0 - (early ? 22 : 45), sd * 5.5, 0.07);
+  // entry sign
+  const sg = new THREE.Group(); const sp = placeOnTrack(sg, P.s0 - (early ? 22 : 80), sd * (WALL + 2.4), 0); sg.rotation.y = sp.yaw + Math.PI;
+  const signTex = texLabel(512, 160, (g, w, h) => {
+    g.fillStyle = '#111'; g.fillRect(0, 0, w, h); g.fillStyle = '#ffc629';
+    const ax = sd > 0 ? w - 30 : 30, bx = sd > 0 ? w - 130 : 130;
+    g.beginPath(); g.moveTo(ax, h / 2); g.lineTo(bx, 22); g.lineTo(bx, h - 22); g.closePath(); g.fill();
+    g.font = `italic 900 96px ${FONT_D}`; g.textAlign = sd > 0 ? 'right' : 'left'; g.textBaseline = 'middle'; g.fillText('PIT LANE', sd > 0 ? w - 160 : 160, h / 2 + 4);
+  });
+  const board = new THREE.Mesh(new THREE.PlaneGeometry(7, 2.2), new THREE.MeshBasicMaterial({ map: signTex, toneMapped: false })); board.position.y = 4.4; sg.add(board);
+  sg.add(new THREE.Mesh(mergeColored([[cylAt(0.12, 0.12, 4.4, 6, -2.8, 2.2, 0.08), 0x5d636b], [cylAt(0.12, 0.12, 4.4, 6, 2.8, 2.2, 0.08), 0x5d636b]]), VCMAT()));
+  W.root.add(sg);
+  // garages facing the boxes (seen from the lane, box 1 is on the left when the lane runs to the right)
+  const sMid = (pitBoxS(0) + pitBoxS(5)) / 2, len = PIT.box * 6, dep = 13, hgt = 7.5;
+  const gp = TRACK.pointAt(sMid, sd * (WALL + PIT.w + 0.55 + dep / 2 + 0.6), {});
+  const grp = new THREE.Group(); grp.position.set(gp.x, 0, gp.z); grp.rotation.y = facingTrack(gp, sd);
+  const gTex = texLabel(2304, 320, (g, w, h) => {
+    g.fillStyle = '#d9dde2'; g.fillRect(0, 0, w, h);
+    g.fillStyle = '#12161f'; g.fillRect(0, 0, w, 70);
+    g.fillStyle = '#ffffff'; g.font = `italic 900 54px ${FONT_D}`; g.textAlign = 'center'; g.textBaseline = 'middle'; fitText(g, 'PIT LANE · ' + TDEF.gpCaps, w / 2, 38, w - 80);
+    const bw = w / 6;
+    for (let slot = 0; slot < 6; slot++) {
+      const k = sd > 0 ? 5 - slot : slot, x = slot * bw;
+      g.fillStyle = BUSES[k].hud; g.fillRect(x + 14, 84, bw - 28, 40);
+      g.fillStyle = '#111'; g.font = `italic 900 34px ${FONT_D}`; g.fillText(BUSES[k].num + ' · ' + BUSES[k].model.toUpperCase(), x + bw / 2, 106);
+      const gr = g.createLinearGradient(0, 130, 0, h); gr.addColorStop(0, '#2a2f37'); gr.addColorStop(1, '#0d1014');
+      g.fillStyle = gr; g.fillRect(x + 22, 134, bw - 44, h - 134);
+    }
+  });
+  const grey = new THREE.MeshLambertMaterial({ color: col(0xc9ced4) });
+  const gm = new THREE.Mesh(new THREE.BoxGeometry(len, hgt, dep), [grey, grey, new THREE.MeshLambertMaterial({ color: col(0x6f7378) }), grey, new THREE.MeshLambertMaterial({ map: gTex }), grey]);
+  gm.position.y = hgt / 2; gm.castShadow = true; gm.receiveShadow = true; grp.add(gm);
+  W.root.add(grp);
+  // a crew of four at every box
+  for (let k = 0; k < 6; k++) {
+    const list = [], geo = crewGeo(parseInt(BUSES[k].hud.slice(1), 16));
+    for (let j = 0; j < 4; j++) {
+      const m = new THREE.Mesh(geo, VCMAT()); m.castShadow = true;
+      const q = TRACK.pointAt(pitBoxS(k) + (j - 1.5) * 1.9, sd * (WALL + 11.2), {});
+      m.position.set(q.x, 0, q.z); m.rotation.y = facingTrack(q, sd);
+      W.root.add(m); list.push({ m, home: m.position.clone(), yaw: m.rotation.y });
+    }
+    PITV.crews.push(list);
+  }
+  // with tyres and pit stops off, water barriers close the lane
+  const bGeo = mergeColored([[boxAt(0.55, 0.85, 1.9, 0, 0.425, 0), 0xffffff], [boxAt(0.7, 0.12, 2.0, 0, 0.06, 0), 0xffffff]]);
+  const n = Math.floor((P.s1 - P.s0) / 2), bars = new THREE.InstancedMesh(bGeo, VCMAT(), n), dummy = new THREE.Object3D(), tmp = {};
+  for (let i = 0; i < n; i++) {
+    T.pointAt(P.s0 + 1 + i * 2, sd * (WALL + 0.25), tmp);
+    dummy.position.set(tmp.x, 0, tmp.z); dummy.rotation.set(0, tmp.yaw, 0); dummy.updateMatrix();
+    bars.setMatrixAt(i, dummy.matrix); bars.setColorAt(i, col(i % 2 ? 0xe32119 : 0xf2f2f2));
+  }
+  bars.castShadow = true; bars.frustumCulled = true; bars.geometry.computeBoundingSphere();
+  const mid = TRACK.pointAt((P.s0 + P.s1) / 2, sd * WALL, {}); bars.geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(mid.x, 0, mid.z), (P.s1 - P.s0) / 2 + 10);
+  W.root.add(bars); PITV.closed = bars; bars.visible = !PIT.open;
+  for (let t = 0; t <= 1.0001; t += 0.1) { const q = TRACK.pointAt(P.s0 + (P.s1 - P.s0) * t, sd * (WALL + 16), {}); reserve(q.x, q.z, 17); }
+}
+// open or close the pit lane (tyres and pit stops on or off)
+function setPitOpen(on) { PIT.open = !!on && !!TDEF.pit; if (PITV.closed) PITV.closed.visible = !PIT.open; }
+// crews run to the wheels while their bus is stopped for new tyres
+const CREW_V = new THREE.Vector3();
+function updatePitCrews(dt, time) {
+  for (let k = 0; k < PITV.crews.length; k++) {
+    const b = RACE.buses.find((x) => x.def.num === k + 1);
+    const busy = !!b && b.pitStopT > 0;
+    PITV.crews[k].forEach((c, j) => {
+      if (busy) {
+        const w = b.m.wheels[j], sy = Math.sin(b.yaw), cy = Math.cos(b.yaw), out = w.pivot.position.x > 0 ? 0.9 : -0.9;
+        const lx = w.pivot.position.x + out, lz = w.pivot.position.z;
+        CREW_V.set(b.x + lx * cy + lz * sy, 0, b.z - lx * sy + lz * cy);
+        c.m.rotation.y = b.yaw + (out > 0 ? -Math.PI / 2 : Math.PI / 2);
+        c.m.scale.set(1, 0.72 + Math.sin(time * 18 + j) * 0.04, 1);
+      } else { CREW_V.copy(c.home); c.m.rotation.y = c.yaw; c.m.scale.set(1, 1, 1); }
+      c.m.position.lerp(CREW_V, Math.min(1, dt * (busy ? 9 : 3)));
+    });
+  }
 }
 
 // =====================================================================
@@ -1348,6 +1537,7 @@ function buildAirport(A) {
   const cap = new THREE.SphereGeometry(0.2, 8, 6); cap.translate(0, 0.62, 0);
   const spots = { blue: [], white: [] }, tmp = {};
   for (let s = 10; s < L; s += 24) for (const side of [1, -1]) {
+    if (TDEF.pit && side === TDEF.pit.side && s > TDEF.pit.s0 - 6 && s < TDEF.pit.s1 + 6) continue;
     T.pointAt(s, side * (HW + KERB + 1.6), tmp);   // on the verge inside the walls, where drivers see them
     (s > twA - 20 && s < twB + 20 ? spots.blue : spots.white).push([tmp.x, tmp.z]);
   }
@@ -1696,11 +1886,12 @@ class Bus {
     this.best = Infinity; this.students = 0; this.cp = -1; this.gap = 0; this.wrongT = 0; this.impactCD = 0;
     this.ai.stuck = 0; this.ai.rev = 0; this.ai.lane = this.q.d; this.ai.biasT = 0;
     resetAbil(this);
+    resetTyres(this);
     this.updateProgress();
   }
   get speed() { return Math.hypot(this.vx, this.vz); }
   step(dt, c) {
-    if (this.holdT > 0) { this.vx = 0; this.vz = 0; this.fwd = 0; this.yawRate = 0; this.slip = 0; this.boosting = false; this.braking = true; return; }
+    if (this.holdT > 0 || this.pitStopT > 0) { this.vx = 0; this.vz = 0; this.fwd = 0; this.yawRate = 0; this.slip = 0; this.boosting = false; this.braking = true; return; }
     if (this.stunT > 0) c = stunCtrl(this);
     const st = this.st, sy = Math.sin(this.yaw), cy = Math.cos(this.yaw);
     const vf = this.vx * sy + this.vz * cy;
@@ -1709,6 +1900,9 @@ class Bus {
     const offPen = this.off && !this.dirtProof;
     let vmax = Math.max(5, st.vmax * this.vmul * this.abilMul * (offPen ? 0.62 : 1)), acc = st.accel * Math.max(1, this.abilMul);
     this.boosting = this.tempBonus >= 0.06;
+    const tf = tyreFx(this);   // compound and wear (zero with tyres off)
+    vmax *= 1 + tf.pace;
+    if (this.pitLim) vmax = Math.min(vmax, TYRES.pitSpeed);
     let a = 0;
     if (c.thr > 0) {
       if (vf > -0.5) { const x = Math.max(0, vf) / vmax; a += x < 1 ? acc * c.thr * (1 - x * x) : -(x - 1) * vmax * 0.8; }
@@ -1734,7 +1928,7 @@ class Bus {
       const beta = wrapA(Math.atan2(this.vx, this.vz) - tgt);
       // rain: less grip for everyone but Sarp, and the tail steps out whenever the bus turns
       const wet = RAIN.t > 0 && !this.aura;
-      const grip = st.grip * (c.hb ? 0.16 : 1) * (this.off ? 0.7 : 1) * (wet ? (1 - RAIN.loss) * (Math.abs(c.steer) > 0.25 ? 0.55 : 1) : 1);
+      const grip = st.grip * (c.hb ? 0.16 : 1) * (this.off ? 0.7 : 1) * (1 + tf.grip) * (wet ? (1 - RAIN.loss) * (Math.abs(c.steer) > 0.25 ? 0.55 : 1) : 1);
       const nb = beta * Math.exp(-grip * dt);
       const ns = spd * (1 - Math.min(0.5, Math.abs(beta) * (c.hb ? 0.5 : 0.3) * dt));
       const na = tgt + nb;
@@ -1744,7 +1938,7 @@ class Bus {
     // steering
     const av = Math.abs(vf);
     const sf = Math.min(1, av / 5) * (1 - 0.5 * Math.min(1, av / st.vmax));
-    let yr = clamp(c.steer, -1, 1) * st.steer * sf * (c.hb ? 1.35 : 1) * (RAIN.t > 0 && !this.aura ? 1.12 : 1);
+    let yr = clamp(c.steer, -1, 1) * st.steer * sf * (c.hb ? 1.35 : 1) * (1 + tf.grip * 0.5) * (RAIN.t > 0 && !this.aura ? 1.12 : 1);
     if (vf < 0) yr = -yr;
     this.yawRate = yr;
     this.yaw = wrapA(this.yaw - yr * dt);
@@ -1759,7 +1953,7 @@ class Bus {
     const ext = Math.abs(Math.sin(rel)) * this.halfL + Math.abs(Math.cos(rel)) * this.halfW;
     latLimits(q.s, q.d, LIM);
     const hiL = LIM.hi - 0.05 - ext, loL = LIM.lo + 0.05 + ext;
-    this.off = Math.abs(q.d) > HW + KERB * 0.8;
+    this.off = Math.abs(q.d) > HW + KERB * 0.8 && !inPitZone(q.s, q.d);
     this.scraping = false;
     const sd = q.d > hiL ? 1 : (q.d < loL ? -1 : 0);
     if (sd) {
@@ -1894,7 +2088,9 @@ function aiDrive(b, dt, all) {
     }
   }
   lane = clamp(aiLaneWish(b, s, lane), -HW + 2.3, HW - 2.3);
-  ai.lane = lerp(ai.lane, lane, Math.min(1, dt * 1.6));
+  const pl = pitPlan(b, s);   // pitting: the game drives the pit lane
+  if (pl) lane = pl.lane;
+  ai.lane = lerp(ai.lane, lane, Math.min(1, dt * (pl ? 2.4 : 1.6)));
   // steer toward a look-ahead point
   const look = 9 + v * 0.42;
   T.pointAt(s + look, ai.lane, TMP);
@@ -1902,7 +2098,7 @@ function aiDrive(b, dt, all) {
   const ang = Math.atan2(dx * -cy + dz * sy, dx * sy + dz * cy);
   let steer = clamp(ang * 2.5, -1, 1);
   // speed target from the curvature ahead
-  const skill = ai.skill;
+  const skill = ai.skill * (1 + tyreFx(b).grip * 0.5);
   let target = st.vmax * 1.3;
   for (let k = 4; k <= 150; k += 5) {
     const kk = Math.abs(T.curvAt(s + k));
@@ -1911,12 +2107,13 @@ function aiDrive(b, dt, all) {
     target = Math.min(target, Math.sqrt(vA * vA + 2 * 17 * k));
   }
   target = Math.min(target, cornerSpeed(st, T.curvAt(s)) * skill + 1.5);
+  if (pl) target = Math.min(target, pl.cap);
   let thr = v < target - 0.5 ? 1 : (v < target + 1.5 ? 0.35 : 0);
   let brk = v > target + 2 ? clamp((v - target) / 6, 0.25, 1) : 0;
   // recovery if stuck against a wall or pointing the wrong way
   const along = b.vx * b.q.tx + b.vz * b.q.tz;
   const heading = wrapA(b.yaw - Math.atan2(b.q.tx, b.q.tz));
-  if (RACE.t > 4 && b.stunT <= 0 && b.holdT <= 0 && (b.speed < 2.5 || Math.abs(heading) > 2.2)) ai.stuck += dt; else ai.stuck = Math.max(0, ai.stuck - dt * 2);
+  if (RACE.t > 4 && b.stunT <= 0 && b.holdT <= 0 && !b.pit && (b.speed < 2.5 || Math.abs(heading) > 2.2)) ai.stuck += dt; else ai.stuck = Math.max(0, ai.stuck - dt * 2);
   if (ai.stuck > 1.2 && ai.rev <= 0) { ai.rev = 1.1; }
   if (ai.rev > 0) { ai.rev -= dt; thr = 0; brk = 1; steer = -Math.sign(heading || 1); }
   if (ai.stuck > 4.5) { respawnBus(b); ai.stuck = 0; ai.rev = 0; }
@@ -1926,13 +2123,14 @@ function aiDrive(b, dt, all) {
   if (b.ai.bait) thr = Math.min(thr, 0.15);
   c.thr = thr; c.brk = brk; c.steer = steer; c.hb = false; c.boost = false;
   // inside Volkan's field a bot's controls are reversed until it adapts
-  if (b.fieldInv && b.fieldT < CH.volkan.ability.botDelay) { c.steer = -c.steer; c.thr = brk; c.brk = thr; }
+  if (b.fieldInv && b.fieldT < CH.volkan.ability.botDelay && !b.pit) { c.steer = -c.steer; c.thr = brk; c.brk = thr; }
   void along;
 }
 function respawnBus(b) {
   const s = isFinite(b.q.s) ? b.q.s : 0;
   const lat = isFinite(b.q.d) ? clamp(b.q.d, -HW + 3, HW - 3) : 0;
   const lap = b.lap, prev = b.prevS;
+  b.pit = null; b.pitStopT = 0;
   b.place(s, lat);
   b.lap = lap; b.prevS = prev; b.updateProgress();
 }
@@ -2188,6 +2386,174 @@ function busDist(o, x, z) {
 }
 
 // =====================================================================
+//  TYRES AND PIT STOPS: F1-style compounds (soft, medium, hard) that wear,
+//  a tyre strategy for every bus, and automatic pit stops: once a bus is
+//  in the pit lane the game drives it to its box, the crew fits the next
+//  set of the plan, and the driver gets the bus back at the pit exit.
+//  All of it is off when RACE.tyres is false (numbers: TYRES, characters.js).
+// =====================================================================
+const TYRE_KEYS = ['S', 'M', 'H'];
+// a pit stop costs about 10 s (measured on every circuit); as a share of a lap, only used to compare plans
+const pitLoss = () => 10 / (TRACK.L / 46);
+// speed and grip change of compound c with `wear` % left (fresh = 100)
+function tyrePerf(c, wear, o) {
+  const C = TYRES[c] || TYRES.M, w = clamp(wear, 0, 100), used = 1 - w / 100;
+  o.pace = C.pace - TYRES.fade * used; o.grip = C.grip - TYRES.fade * 2 * used;
+  if (w < TYRES.cliff) { const f = 1 - w / TYRES.cliff; o.pace += TYRES.cliffPace * f; o.grip += TYRES.cliffGrip * f; }
+  return o;
+}
+const TF = { pace: 0, grip: 0 }, TFX = { pace: 0, grip: 0 };
+function tyreFx(b) {
+  if (!RACE.tyres || !b.tyre) { TF.pace = 0; TF.grip = 0; return TF; }
+  return tyrePerf(b.tyre.c, b.tyre.wear, TF);
+}
+function resetTyres(b, st) {
+  st = st || { start: 'M', stops: [] };
+  b.tyre = { c: st.start, wear: 100 }; b.plan = st.stops.map((x) => ({ after: x.after, c: x.c })); b.planI = 0;
+  b.boxReq = false; b.boxSkip = -1; b.pit = null; b.pitStopT = 0; b.pitMax = TYRES.pitTime; b.pitLim = false;
+  b.pitStops = 0; b.stints = [st.start]; b.tyreWarn = 0;
+}
+// the set the crew fits at the next stop: the next one in the plan, or a fresh set of the same
+const nextCompound = (b) => (b.plan && b.plan[b.planI] ? b.plan[b.planI].c : b.tyre.c);
+// wear: a set lasts `life` laps of normal racing; slides and the dirt wear it faster
+function tyreWear(b, dt) {
+  if (!RACE.tyres || !b.tyre || b.remote || b.finished || b.pitStopT > 0 || RACE.state !== 'race' && RACE.state !== 'finish') return;
+  const C = TYRES[b.tyre.c] || TYRES.M, v = Math.max(0, b.fwd);
+  const k = 1 + TYRES.slideWear * clamp((Math.abs(b.slip) - 0.08) * 5, 0, 1) + (b.off ? 0.4 : 0);
+  b.tyre.wear = Math.max(0, b.tyre.wear - v * dt * k * 100 / (C.life * TRACK.L));
+}
+
+// ---------- plans: when to stop and which set to fit ----------
+// a plan is { start, stops: [{ after, c }] }: "box after lap `after` and fit compound c"
+const pitAfterLine = () => !!TDEF.pit && TDEF.pit.s0 < TRACK.L / 2;   // this pit lane comes right after the line
+function estimateStrategy(st, laps) {
+  let t = 0, c = st.start, wear = 100, si = 0;
+  for (let lap = 1; lap <= laps; lap++) {
+    const s = st.stops[si];
+    if (s && s.after === lap - 1) { t += pitLoss(); c = s.c; wear = 100; si++; }
+    const per = 100 / TYRES[c].life;
+    for (let k = 0; k < 4; k++) { const f = tyrePerf(c, wear - per * (k + 0.5) / 4, TFX); t += (1 - (f.pace * 0.75 + f.grip * 0.2)) / 4; }   // weights measured with test laps
+    wear = Math.max(0, wear - per);
+  }
+  return t;
+}
+const STRATS = {};
+function strategyList(laps) {
+  const key = laps + ':' + TDEF.id;
+  if (STRATS[key]) return STRATS[key];
+  const L = [], C = TYRE_KEYS, maxS = Math.min(TYRES.maxStops, laps - 1);
+  const add = (start, stops) => L.push({ start, stops, t: estimateStrategy({ start, stops }, laps) });
+  const rec = (start, stops, from) => {
+    add(start, stops);
+    if (stops.length >= maxS) return;
+    for (let a = from; a <= laps - 1; a++) for (const c of C) rec(start, stops.concat([{ after: a, c }]), a + 1);
+  };
+  for (const s of C) rec(s, [], 1);
+  L.sort((x, y) => x.t - y.t);
+  return (STRATS[key] = L);
+}
+const bestStrategy = (laps) => { const s = strategyList(laps)[0]; return { start: s.start, stops: s.stops.map((x) => ({ after: x.after, c: x.c })) }; };
+// bots pick one of the better plans (hard bots the best ones)
+function pickStrategy(laps, diff) {
+  const L = strategyList(laps), top = diff >= 2 ? 2 : diff === 1 ? 5 : 10, s = L[Math.floor(Math.pow(rnd(), 1.6) * Math.min(top, L.length))];
+  return { start: s.start, stops: s.stops.map((x) => ({ after: x.after, c: x.c })) };
+}
+function validStrategy(st, laps) {
+  if (!st || !TYRES[st.start] || !Array.isArray(st.stops)) return bestStrategy(laps);
+  const out = { start: st.start, stops: [] };
+  let prev = 0;
+  for (const x of st.stops) {
+    if (!x || !TYRES[x.c] || out.stops.length >= Math.min(TYRES.maxStops, laps - 1)) continue;
+    const a = clamp(x.after | 0, prev + 1, laps - 1);
+    if (a <= prev || a > laps - 1) continue;
+    out.stops.push({ after: a, c: x.c }); prev = a;
+  }
+  return out;
+}
+const stratText = (st) => [st.start].concat(st.stops.map((x) => x.c)).join(' → ');
+const stratLong = (st) => TYRES[st.start].name + st.stops.map((x) => ', ' + TYRES[x.c].name.toLowerCase() + ' after lap ' + x.after).join('');
+
+// ---------- the pit stop itself ----------
+// distance along the lap from the pit entry (negative before it)
+function pitRel(s) { const L = TRACK.L; return ((s - TDEF.pit.s0) % L + L * 1.5) % L - L / 2; }
+function pitStep(b, dt) {
+  b.pitLim = false;
+  const P = TDEF.pit;
+  if (!RACE.tyres || !P || b.remote || !b.tyre) return;
+  const s = b.q.s, u = b.q.d * P.side, rel = pitRel(s), span = P.s1 - P.s0;
+  if (b.pitStopT > 0) {   // the crew at work
+    b.pitStopT -= dt; b.vx = b.vz = 0;
+    if (b.pitStopT <= 0) finishStop(b);
+    return;
+  }
+  // the plan (or worn-out tyres) sets the box for this lap
+  if (!b.pit && !b.finished && RACE.state === 'race') {
+    const nx = b.plan[b.planI];
+    if (nx && b.lap >= nx.after + (pitAfterLine() ? 1 : 0) && b.boxSkip !== b.lap && !b.boxReq) { b.boxReq = true; if (b.isPlayer) showMsg('Box, box!', 'Pit this lap for ' + TYRES[nx.c].name.toLowerCase() + ' tyres · B to stay out', 'warn', 2.4); }
+    if (!b.isPlayer && !b.human && b.tyre.wear < 6 && b.lap < RACE.laps) b.boxReq = true;
+  }
+  // the game takes over at the pit entry, or as soon as a bus drives into the pit lane
+  if (!b.pit) {
+    if (b.finished) return;
+    if (b.boxReq && rel > -100 && rel < 4) b.pit = { stopped: false };
+    else if (rel > 0 && rel < span && u > WALL - 0.5) b.pit = { stopped: false };
+    else return;
+    b.ai.lane = b.q.d;   // steer on from where the bus is now
+    if (b.isPlayer) toast('Pit lane: the game drives, the crew changes the tyres');
+  }
+  const inLane = rel > 0 && rel < span && u > WALL - 0.5, box = pitBoxS(b.def.num - 1);
+  b.pitLim = inLane && rel > 6 && rel < span - 6;
+  // stop in (or right beside) the box: a bump in the pit lane doesn't cost the stop
+  if (!b.pit.stopped && inLane && b.speed < 2.2 && Math.abs(s - box) < 8 && u > WALL + 3) startStop(b);
+  if (rel > span + 5 || rel < -120) b.pit = null;   // back on the circuit: over to the driver
+}
+function startStop(b) {
+  b.pit.stopped = true;
+  const pen = b.stopPen || 0;   // Ali's bite makes this stop longer
+  b.pitStopT = TYRES.pitTime + pen; b.pitMax = b.pitStopT; b.vx = b.vz = 0;
+  if (pen) { b.penPaid += pen; b.stopPen = 0; }
+  if (b.isPlayer) { SFX.wrench(); if (pen) toast('Ali\'s bite: +' + pen + ' s in the box'); }
+}
+function finishStop(b) {
+  b.pitStopT = 0;
+  const c = nextCompound(b);
+  if (b.plan[b.planI]) b.planI++;
+  b.tyre = { c, wear: 100 }; b.pitStops++; b.stints.push(c); b.boxReq = false; b.tyreWarn = 0;
+  if (b.isPlayer) { showMsg('Fresh ' + TYRES[c].name.toLowerCase() + 's', 'Go go go!', 'go', 1.4); SFX.go(); }
+}
+// where the game drives a bus that is pitting: a lane and a speed cap (null when it isn't pitting)
+function pitPlan(b, s) {
+  if (!b.pit || !TDEF.pit) return null;
+  const P = TDEF.pit, sd = P.side, rel = pitRel(s), span = P.s1 - P.s0, v = TYRES.pitSpeed;
+  if (rel < -90) return { lane: sd * 6, cap: 99 };
+  if (rel < -14) return { lane: sd * 8.8, cap: Math.sqrt(24 * 24 + 2 * 12 * Math.max(0, -rel - 14)) };
+  if (rel < span - PIT.gap) {
+    const box = pitBoxS(b.def.num - 1);
+    if (!b.pit.stopped) {
+      if (s > box + 6) return { lane: sd * (WALL + 4), cap: v - 1 };   // missed the box: on to the exit, the box stays set for the next lap
+      if (s > box - 16) return { lane: sd * (WALL + 9), cap: Math.min(v - 1, Math.sqrt(2 * 7 * Math.max(0, box - s - 0.8))) };
+      return { lane: sd * (WALL + 4), cap: v - 1 };
+    }
+    return { lane: sd * (WALL + 4), cap: s < box + 8 ? 9 : v - 1 };
+  }
+  return { lane: sd * 7, cap: v - 1 + (rel - (span - PIT.gap)) * 0.6 };
+}
+// the player asks for a stop this lap, or stays out
+function toggleBox() {
+  const p = RACE.player;
+  if (!RACE.tyres || !p || p.finished || p.pit || RACE.state !== 'race') return;
+  if (p.boxReq) { p.boxReq = false; p.boxSkip = p.lap; toast('Staying out this lap'); }
+  else { p.boxReq = true; toast('Box this lap: ' + TYRES[nextCompound(p)].name.toLowerCase() + ' tyres'); }
+}
+// warnings for the player as the tyres wear
+function tyreWarnings(p) {
+  if (!RACE.tyres || !p || !p.tyre || p.finished || RACE.state !== 'race') return;
+  const w = p.tyre.wear;
+  if (w < 30 && p.tyreWarn < 1) { p.tyreWarn = 1; toast('Tyres at ' + Math.round(w) + '%: think about a stop (B)'); }
+  if (w < TYRES.cliff * 0.5 && p.tyreWarn < 2) { p.tyreWarn = 2; showMsg('Tyres gone!', p.boxReq ? 'Boxing this lap' : 'Press B to box this lap', 'warn', 2.2); }
+}
+
+// =====================================================================
 //  DRIVER ABILITIES: students, two passives and one ability per driver.
 //  Every number comes from RULES and CHARACTERS in characters.js.
 // =====================================================================
@@ -2245,10 +2611,10 @@ function stunBus(t, dur, src) {
   if (!t || t.finished) return false;
   if (t.remote) {   // online: the device that drives it decides (guard, aura), we guess for the pop-up
     if (NET.racing) netEvent(t, 'stun', { dur, src: busIdx(src) });
-    return !(t.aura || t.stunGuardT > 0 || t.holdT > 0);
+    return !(t.aura || t.stunGuardT > 0 || t.holdT > 0 || t.pit);
   }
   if (src && src !== t) {
-    if (t.aura || t.stunGuardT > 0 || t.holdT > 0) return false;
+    if (t.aura || t.stunGuardT > 0 || t.holdT > 0 || t.pit) return false;
     t.rivalStunT = Math.max(t.rivalStunT, dur);
     if (t.ab.key === 'song') cutSong(t, '', true);
   } else t.selfStunT = Math.max(t.selfStunT, dur);
@@ -2285,6 +2651,7 @@ function abilityBlock(b) {
   if (b.finished) return 'Finished';
   if (b.holdT > 0 || b.throwT > 0) return 'Busy';
   if (b.stunT > 0) return 'Stunned';
+  if (b.pit) return 'In the pit lane';
   return ABIL[id].block(b);
 }
 function useAbility(b) {
@@ -2422,11 +2789,12 @@ function lepTarget(b) {
   const a = CH.ada.ability;
   let best = null, bd = Infinity;
   for (const o of RACE.buses) {
-    if (o === b || o.aura || o.finished || o.holdT > 0 || o.throwT > 0) continue;
+    if (o === b || o.aura || o.finished || o.holdT > 0 || o.throwT > 0 || o.pit) continue;
     const ds = relS(o, b);
     if (ds <= 0 || ds - b.halfL - o.halfL > a.range * BUSLEN) continue;
-    if (Math.abs(o.q.d - b.q.d) > 9) continue;
-    const side = o.q.d >= 0 ? 1 : -1;
+    if (Math.abs(o.q.d - b.q.d) > 9 || inPitZone(o.q.s, o.q.d)) continue;
+    let side = o.q.d >= 0 ? 1 : -1;
+    if (PIT.open && TDEF.pit && side === TDEF.pit.side && o.q.s > TDEF.pit.s0 - 12 && o.q.s < TDEF.pit.s1 + 12) side = -side;   // the pit entry is not a wall
     if (ds < bd) { bd = ds; best = { bus: o, side }; }
   }
   return best;
@@ -2634,12 +3002,13 @@ function quizStep(b, dt, live) {
   if (!q) {
     if (b.lap < 1) return;
     pv.quizT += dt;
-    if (pv.quizT >= pv.quizNext) { pv.quizT = 0; pv.quizNext = p.every * rr(0.9, 1.1); newQuiz(b); }
+    if (pv.quizT >= pv.quizNext && !b.pit) { pv.quizT = 0; pv.quizNext = p.every * rr(0.9, 1.1); newQuiz(b); }
     return;
   }
   q.t += dt;
   if (q.phase === 'ask' && q.t >= p.gateDelay) placeGates(b, q);
   if (q.phase !== 'gates') return;
+  if (b.pit) { endQuiz(b); return; }
   const rel = relS({ q: { s: b.q.s } }, { q: { s: q.s } });
   if (q.prev < 0 && rel >= 0 && rel < 40) { answerGate(b, q, b.q.d < 0 ? -1 : 1); return; }
   q.prev = rel;
@@ -2782,7 +3151,7 @@ function checkTick(dt) {
   if (!c.done && c.t >= c.max) resolveCheck(false);
   if (c.done) { c.hideT -= dt; if (c.hideT <= 0) { RACE.check = null; closeCheckUI(); } }
 }
-function canBite(o) { return !o.aura && !o.finished && !(o.holdT > 0) && !(o.stunGuardT > 0); }
+function canBite(o) { return !o.aura && !o.finished && !(o.holdT > 0) && !(o.stunGuardT > 0) && !o.pit; }
 function bite(b, o) {
   const a = CH.ali.ability.full;
   startAb(b, 'bite', a.biteTime).victim = o;
@@ -2790,10 +3159,11 @@ function bite(b, o) {
   if (o.remote) netEvent(o, 'bite', { src: busIdx(b), dur: a.biteTime, pen: a.stopPenalty });
   else { if (o.ab.key === 'song') cutSong(o, '', true); o.holdT = a.biteTime; o.vx = o.vz = 0; o.stopPen = Math.max(o.stopPen, a.stopPenalty); }
   chompFX(b, o); SFX.chomp(Math.max(camVol(b), camVol(o)));
-  if (o.isPlayer) showMsg('CHOMP!', 'Ali bit you: you stop for ' + a.stopPenalty + ' s at the start/finish line', 'warn', 2.2);
-  if (b.isPlayer) toast('CHOMP! ' + o.driver.nick + ' must stop for ' + a.stopPenalty + ' s at the line');
+  if (o.isPlayer) showMsg('CHOMP!', 'Ali bit you: ' + penaltyWhere(a.stopPenalty), 'warn', 2.2);
+  if (b.isPlayer) toast('CHOMP! ' + o.driver.nick + ' pays ' + a.stopPenalty + ' s ' + (RACE.tyres ? 'at the next pit stop' : 'at the line'));
 }
-// Ali's bite penalty: at the start/finish line the bitten bus stops and turns into a ghost nobody can hit
+const penaltyWhere = (t) => RACE.tyres ? '+' + t + ' s in the box at your next pit stop' : 'you stop for ' + t + ' s at the start/finish line';
+// Ali's bite penalty (tyres off): at the start/finish line the bitten bus stops and turns into a ghost nobody can hit
 function servePenalty(b) {
   const t = b.stopPen; if (!(t > 0)) return;
   if (b.ab.key === 'song') cutSong(b, '', true);
@@ -2902,7 +3272,7 @@ const AIWANT = {
 };
 function aiAbility(b, dt) {
   const ai = b.ai, id = drvId(b);
-  if (RACE.state !== 'race' || b.finished || !id) return;
+  if (RACE.state !== 'race' || b.finished || !id || b.pit) return;
   if (id === 'doruk' && b.pv.wrong >= CH.doruk.passive2.unlockWrong) ai.rageWait += dt;
   if (id === 'ela' && b.bank >= CH.ela.ability.cost) ai.songWait += dt;
   if (id === 'ali') {
@@ -2977,7 +3347,7 @@ function effectList(b) {
   if (id === 'ada' && pv.trail) L.push(['good', '+' + pct(CH.ada.passive2.bonus) + ' Trail', null]);
   if (b.permBonus > 0) L.push(['good', '+' + pct(b.permBonus) + (id === 'sarp' ? ' Permanent' : ' Gym'), null]);
   if (b.stunGuardT > 0) L.push(['info', 'Stun guard', b.stunGuardT]);
-  if (b.stopPen > 0) L.push(['bad', 'Stop ' + b.stopPen + ' s at the line', null]);
+  if (b.stopPen > 0) L.push(['bad', RACE.tyres ? '+' + b.stopPen + ' s at the next stop' : 'Stop ' + b.stopPen + ' s at the line', null]);
   if (id === 'doruk' && pv.wrong > 0) L.push(['info', 'Wrong in a row ' + pv.wrong + '/' + CH.doruk.passive2.unlockWrong, null]);
   return L;
 }
@@ -3647,9 +4017,9 @@ function tryPlayerAbility() {
 //  drives that bus, which applies them (Sarp's aura and the stun guard are
 //  checked where they belong).
 // =====================================================================
-const NET_VERSION = 'sbr-online-4';
+const NET_VERSION = 'sbr-online-5';
 const NET = { on: false, host: false, racing: false, peer: null, conn: null, links: new Map(), code: '', my: '', players: [], laps: 6, diff: 1,
-  sendT: 0, relayT: 0, beatT: 0, lastHost: 0, dropHits: new Map(), joining: false, attempt: 0, route: '', direct: false, seq: 0, seen: 0, track: 'anka' };
+  sendT: 0, relayT: 0, beatT: 0, lastHost: 0, dropHits: new Map(), joining: false, attempt: 0, route: '', direct: false, seq: 0, seen: 0, track: 'anka', tyres: true };
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const roomPeerId = (code) => 'sbr-anka-gp-' + code.toLowerCase();
 const busIdx = (b) => (b ? b.def.num - 1 : -1);
@@ -3716,7 +4086,7 @@ function netCreate() {
   onlineStatus('Creating a room…');
   const openRoom = () => {
     if (NET.attempt !== attempt || NET.on) return;
-    NET.on = true; NET.track = TDEF.id;
+    NET.on = true; NET.track = TDEF.id; NET.tyres = RACE.tyresPref;
     NET.players = [{ pid: NET.my, drv: RACE.drvIdx, bus: RACE.busIdx, host: true }];
     onlineStatus(''); renderLobby();
   };
@@ -3918,7 +4288,7 @@ function botTakeOver(b) {
   b.ai.base = 1; b.vmul = D.vmul; b.ai.skill = D.skill; b.ai.greed = 0.8; b.ai.stopDec = {}; b.ai.lane = b.q.d; b.ai.abDelay = 2;
   b.net = null; b.netOff = null;
 }
-function lobbyMsg() { return { k: 'lobby', n: ++NET.seq, players: NET.players, laps: NET.laps, diff: NET.diff, track: NET.track, racing: NET.racing }; }
+function lobbyMsg() { return { k: 'lobby', n: ++NET.seq, players: NET.players, laps: NET.laps, diff: NET.diff, track: NET.track, tyres: NET.tyres ? 1 : 0, racing: NET.racing }; }
 // the host picks the circuit for the room; everybody's world follows
 function pickNetTrack(id) { if (!NET.host || NET.racing) return; NET.track = trackById(id).id; switchTrack(NET.track, false); broadcastLobby(); }
 // everybody except `except`: direct links one by one, relay players with one message on the room channel
@@ -3940,7 +4310,7 @@ function hostStart() {
     const h = NET.players.find((p) => p.bus === bi);
     return { bus: bi, drv: h ? h.drv : free.pop(), owner: h ? h.pid : NET.my, human: !!h };
   });
-  const m = { k: 'start', n: ++NET.seq, laps: NET.laps, diff: NET.diff, track: NET.track, entries, order: shuffle(entries.map((e, i) => i)), goAt: +(4.4 + rr(0.5, 1.3)).toFixed(2) };
+  const m = { k: 'start', n: ++NET.seq, laps: NET.laps, diff: NET.diff, track: NET.track, tyres: NET.tyres ? 1 : 0, entries, order: shuffle(entries.map((e, i) => i)), goAt: +(4.4 + rr(0.5, 1.3)).toFixed(2) };
   NET.racing = true;
   netSend(m); netStartRace(m);
 }
@@ -3952,6 +4322,7 @@ function clientData(m) {
   if (m.k === 'lobby') {
     NET.players = Array.isArray(m.players) ? m.players : []; NET.laps = m.laps; NET.diff = m.diff;
     if (typeof m.track === 'string') { NET.track = trackById(m.track).id; if (!NET.racing && NET.track !== TDEF.id) switchTrack(NET.track, false); }
+    if (m.tyres != null) NET.tyres = !!m.tyres;
     // a friend who left mid-race: the host's bot drives their bus now
     if (NET.racing) for (const b of RACE.buses) if (b.remote && b.owner !== roomPeerId(NET.code) && !NET.players.some((p) => p.pid === b.owner)) { b.owner = roomPeerId(NET.code); b.human = false; b.net = null; b.netOff = null; }
     if (NET.racing && !m.racing) backToLobby(); else renderLobby();
@@ -3976,10 +4347,11 @@ function netStartRace(m) {
   SFX.init();
   if (!m || !Array.isArray(m.entries) || !m.entries.some((e) => e.human && e.owner === NET.my)) { onlineStatus('The race started before you joined. You are in for the next one.', true); return; }
   NET.racing = true; NET.live = false; RACE.paused = false;
-  RACE.laps = [3, 6, 10].includes(m.laps) ? m.laps : 6; RACE.diff = clamp(fin(m.diff, 1), 0, 2) | 0;
+  RACE.laps = [3, 6, 10].includes(m.laps) ? m.laps : 6; RACE.diff = clamp(fin(m.diff, 1), 0, 2) | 0; RACE.tyres = !!m.tyres;
   fadeTo(() => {
     const tr = trackById(m.track);
     if (TDEF !== tr) { buildWorld(tr); afterWorld(); }
+    setPitOpen(RACE.tyres);
     const D = DIFF[RACE.diff];
     RACE.buses.forEach((b) => { b.remote = false; b.owner = null; b.human = false; b.isPlayer = false; b.net = null; b.netOff = null; });
     m.entries.forEach((e) => {
@@ -3997,6 +4369,7 @@ function netStartRace(m) {
       b.vmul = b.human ? 1 : D.vmul * b.ai.base;
       b.ai.skill = D.skill * rr(0.96, 1.02); b.ai.greed = rr(0.6, 0.95); b.ai.stopDec = {};
       b.cp = Math.floor(b.progress / 20);
+      if (!b.remote) resetTyres(b, b.isPlayer ? myStrategy(RACE.laps) : pickStrategy(RACE.laps, RACE.diff));
     });
     RACE.netGoAt = fin(m.goAt, 5);
     finishRaceSetup(p, p.driver);
@@ -4025,11 +4398,11 @@ function backToLobby() {
 function busState(b) {
   const ab = b.ab || {};
   const fl = (b.braking ? 1 : 0) | (b.boosting ? 2 : 0) | (b.stunT > 0 ? 4 : 0) | (b.holdT > 0 ? 8 : 0) | (b.stunGuardT > 0 ? 16 : 0) | (b.ghostT > 0 ? 32 : 0) |
-    (b.penStopT > 0 ? 64 : 0) | (b.effects && b.effects.some((e) => e.key === 'rainbow') ? 256 : 0) | (b.fx && b.fx.plantT > 0 ? 512 : 0) | (b.finished ? 1024 : 0);
+    (b.penStopT > 0 ? 64 : 0) | (b.pit ? 128 : 0) | (b.effects && b.effects.some((e) => e.key === 'rainbow') ? 256 : 0) | (b.fx && b.fx.plantT > 0 ? 512 : 0) | (b.finished ? 1024 : 0) | (b.pitStopT > 0 ? 2048 : 0);
   const s = {
     i: busIdx(b), h: NET.host ? 1 : 0, t: Math.round(performance.now()), x: r2(b.x), z: r2(b.z), y: +b.yaw.toFixed(3), yr: +(b.yawRate || 0).toFixed(3), vx: r2(b.vx), vz: r2(b.vz), f: r2(b.fwd), st: r2(b.ctrl.steer), sl: r2(b.slip), fy: r2(b.flyY || 0),
     lp: b.lap, pr: r2(b.progress), ft: +(b.finishTime || 0).toFixed(3), fp: b.finishPen || 0, bst: isFinite(b.best) ? +b.best.toFixed(3) : 0,
-    fl, stu: b.students || 0, rt: NET.host ? 0 : Math.round((NET.rtt || 0) * 1000),
+    fl, stu: b.students || 0, tc: b.tyre ? b.tyre.c : 'M', tw: b.tyre ? Math.round(b.tyre.wear) : 100, ps: b.pitStops || 0, sn: (b.stints || []).join(''), rt: NET.host ? 0 : Math.round((NET.rtt || 0) * 1000),
     ab: ab.key || '', ai: ab.id || 0, at: r2(ab.t || 0), am: r2(ab.max || 0),
   };
   if (ab.key === 'ball' && ab.ball) s.ball = [r2(ab.ball.x), r2(ab.ball.z), r2(ab.ball.age), r2(ab.ball.life)];
@@ -4136,6 +4509,8 @@ function remoteStep(b, dt) {
   const f = n.fl | 0;
   b.braking = !!(f & 1); b.boosting = !!(f & 2);
   b.stunT = f & 4 ? 0.5 : 0; b.holdT = f & 8 ? 0.5 : 0; b.stunGuardT = f & 16 ? 1 : 0; b.ghostT = f & 32 ? 0.5 : 0; b.penStopT = f & 64 ? 0.5 : 0;
+  b.pit = f & 128 ? (b.pit || { stopped: false }) : null; b.pitStopT = f & 2048 ? 0.5 : 0;
+  b.tyre = { c: TYRES[n.tc] ? n.tc : 'M', wear: clamp(fin(n.tw, 100), 0, 100) }; b.pitStops = n.ps | 0; b.stints = typeof n.sn === 'string' ? n.sn.split('').filter((x) => TYRES[x]) : [];
   b.fx = b.fx || {}; b.fx.plantT = f & 512 ? 0.5 : 0;
   b.effects = f & 256 ? [{ key: 'rainbow', kind: 'bonus', amt: 0, t: 1, max: 1, label: '' }] : [];
   if (!b.finished && (f & 1024)) { b.finished = true; b.finishTime = fin(n.ft, RACE.t); RACE.order.push(b); }
@@ -4182,7 +4557,7 @@ function handleEvent(m) {
     if (t.ab.key === 'song') cutSong(t, '', true);
     t.holdT = clamp(fin(m.dur, 1.5), 0, 5); t.vx = t.vz = 0; t.stopPen = Math.max(t.stopPen, clamp(fin(m.pen, 2), 0, 10));
     chompFX(src, t); SFX.chomp(camVol(t));
-    if (t.isPlayer) showMsg('CHOMP!', nick + ' bit you: you stop for ' + t.stopPen + ' s at the start/finish line', 'warn', 2.2);
+    if (t.isPlayer) showMsg('CHOMP!', nick + ' bit you: ' + penaltyWhere(t.stopPen), 'warn', 2.2);
   } else if (m.op === 'throw' && t && !t.remote && src) {
     if (t.aura || t.finished || t.holdT > 0 || t.throwT > 0) return;
     if (t.ab.key === 'song') cutSong(t, '', true);
@@ -4273,8 +4648,11 @@ function renderLobby() {
   $('onWait').hidden = NET.host;
   document.querySelectorAll('#onLaps button').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.v === NET.laps)));
   document.querySelectorAll('#onTrack button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === NET.track)));
+  document.querySelectorAll('#onTyres button').forEach((b) => b.setAttribute('aria-pressed', String(!!+b.dataset.v === NET.tyres)));
+  $('onStratWrap').hidden = !NET.tyres;
+  if (NET.tyres && (!NET.stratFor || NET.stratFor !== NET.laps + TDEF.id)) { NET.stratFor = NET.laps + TDEF.id; renderStrategy($('onStrat'), NET.laps); }
   document.querySelectorAll('#onDiff button').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.v === NET.diff)));
-  $('onWait').textContent = 'Waiting for the host to start: ' + trackById(NET.track).name + ' · ' + NET.laps + ' laps · ' + DIFF[NET.diff].name + ' bots';
+  $('onWait').textContent = 'Waiting for the host to start: ' + trackById(NET.track).name + ' · ' + NET.laps + ' laps · ' + DIFF[NET.diff].name + ' bots · tyres and pit stops ' + (NET.tyres ? 'on' : 'off');
 }
 function wireOnline() {
   $('btnOnline').addEventListener('click', goOnline);
@@ -4287,6 +4665,7 @@ function wireOnline() {
   $('btnCopyCode').addEventListener('click', () => { try { navigator.clipboard.writeText(NET.code); toastMenu('Code copied'); } catch (e) { /* no clipboard */ } });
   document.querySelectorAll('#onLaps button').forEach((b) => b.addEventListener('click', () => { NET.laps = +b.dataset.v; broadcastLobby(); }));
   document.querySelectorAll('#onDiff button').forEach((b) => b.addEventListener('click', () => { NET.diff = +b.dataset.v; broadcastLobby(); }));
+  document.querySelectorAll('#onTyres button').forEach((b) => b.addEventListener('click', () => { NET.tyres = !!+b.dataset.v; broadcastLobby(); }));
 }
 function toastMenu(t) { onlineStatus(t); }
 
@@ -4394,6 +4773,7 @@ const SFX = {
   },
   powerUp(v) { if (!this.ctx || v <= 0.02) return; this.tone(300, 0.45, 'sine', 0.18 * v, 0, 1400); [660, 880, 1320].forEach((f, i) => this.tone(f, 0.14, 'triangle', 0.1 * v, 0.1 + i * 0.07)); },
   denied() { this.tone(170, 0.16, 'square', 0.08); },
+  wrench() { if (!this.ctx) return; for (let i = 0; i < 4; i++) { this.tone(880, 0.28, 'sawtooth', 0.05, i * 0.55, 1300); this.burst(0.28, 3000, 0.05, 'bandpass', i * 0.55); } },
   bark(v) { if (!this.ctx || v <= 0.02) return; [0, 0.22].forEach((d) => this.tone(430, 0.12, 'square', 0.14 * v, d, 240)); },
   flap() { this.burst(0.18, 380, 0.12, 'lowpass'); },
   coin() { this.tone(1900 + Math.random() * 700, 0.08, 'triangle', 0.05); },
@@ -4556,10 +4936,13 @@ function applyCam(dt, pos, look, rate) {
 function setFov(f) { if (Math.abs(camera.fov - f) > 0.05) { camera.fov = f; camera.updateProjectionMatrix(); } }
 const CAMQ = {};
 // keep a chase camera inside the walls so it never ends up in trees, lamp posts or buildings
+const CAMLIM = { lo: 0, hi: 0 };
 function clampToCircuit(v) {
   const q = TRACK.project(v.x, v.z, CAM.hint || 0, CAMQ); CAM.hint = q.idx;
-  const lim = WALL - 1.2;
-  if (Math.abs(q.d) > lim) { const ex = Math.abs(q.d) - lim, sd = Math.sign(q.d); v.x -= -q.tz * sd * ex; v.z -= q.tx * sd * ex; }
+  latLimits(q.s, q.d, CAMLIM);   // the walls, or the pit lane when it is open
+  const hi = CAMLIM.hi - 1.2, lo = CAMLIM.lo + 1.2;
+  if (q.d > hi) { const ex = q.d - hi; v.x -= -q.tz * ex; v.z -= q.tx * ex; }
+  else if (q.d < lo) { const ex = lo - q.d; v.x += -q.tz * ex; v.z += q.tx * ex; }
 }
 // fade rival buses that block the view of the player's bus, and lift the camera over a bus right behind
 function cameraOcclusion(dt, active) {
@@ -4635,7 +5018,8 @@ function emitFor(b, dt) {
 const RACE = {
   state: 'boot', t: 0, laps: store.get('laps', 6), diff: store.get('diff', 1), busIdx: store.get('bus', 0), drvIdx: store.get('drv', 0),
   buses: [], player: null, firstPass: [], order: [], stateT: 0, lightsOn: 0, goAt: 0, paused: false,
-  resetCD: 0, stuckT: 0, hintT: 0, quality: store.get('quality', TOUCH ? 'medium' : 'high'), track: store.get('track', 'anka'), trackTok: 0
+  resetCD: 0, stuckT: 0, hintT: 0, quality: store.get('quality', TOUCH ? 'medium' : 'high'), track: store.get('track', 'anka'), trackTok: 0,
+  tyresPref: store.get('tyres', true) !== false, tyres: false, strategy: null
 };
 if (![3, 6, 10].includes(RACE.laps)) RACE.laps = 6;
 if (!(RACE.diff >= 0 && RACE.diff <= 2)) RACE.diff = 1;
@@ -4650,12 +5034,12 @@ const H = {};
 function setT(el, v) { v = String(v); if (el._t !== v) { el._t = v; el.textContent = v; } }
 function setW(el, frac) { const v = Math.round(clamp(frac, 0, 1) * 100) + '%'; if (el._w !== v) { el._w = v; el.style.width = v; } }
 function initHUD() {
-  ['hud', 'hPos', 'hPosOf', 'hLap', 'hTime', 'hLast', 'hBest', 'tLap', 'tLeft', 'hSpeed', 'hMod', 'abilBox', 'hAbName', 'hAbCost', 'hBank', 'hBankLbl', 'hAbFill', 'hAbHint', 'hEffs', 'hDriver', 'hDrvImg', 'hDrvNick', 'hDrvPassive', 'alarm', 'stun', 'sb', 'terms', 'revWarn', 'checkCard', 'chkZone', 'chkMark', 'chkMsg', 'quizCard', 'qzText', 'qzL', 'qzR', 'qzHint', 'brainrot', 'lights', 'intro', 'introTop', 'introTitle', 'introHand', 'msg', 'toast', 'wrong', 'hint', 'speedfx', 'touch', 'minimap', 'tower'].forEach((id) => { H[id] = $(id); });
+  ['hud', 'hPos', 'hPosOf', 'hLap', 'hTime', 'hLast', 'hBest', 'tLap', 'tLeft', 'hSpeed', 'hMod', 'abilBox', 'hAbName', 'hAbCost', 'hBank', 'hBankLbl', 'hAbFill', 'hAbHint', 'hEffs', 'hDriver', 'hDrvImg', 'hDrvNick', 'hDrvPassive', 'alarm', 'stun', 'sb', 'terms', 'revWarn', 'checkCard', 'chkZone', 'chkMark', 'chkMsg', 'quizCard', 'qzText', 'qzL', 'qzR', 'qzHint', 'brainrot', 'tyreBox', 'hTc', 'hTyre', 'hTyrePct', 'hTplan', 'pitBox', 'hPitBar', 'hPitTxt', 'tBox', 'lights', 'intro', 'introTop', 'introTitle', 'introHand', 'msg', 'toast', 'wrong', 'hint', 'speedfx', 'touch', 'minimap', 'tower'].forEach((id) => { H[id] = $(id); });
   H.rows = [];
   for (let i = 0; i < 6; i++) {
     const r = document.createElement('div'); r.className = 'trow';
-    r.innerHTML = '<b></b><i></i><span class="n"></span><span class="g"></span>';
-    H.tower.appendChild(r); H.rows.push({ el: r, p: r.children[0], c: r.children[1], n: r.children[2], g: r.children[3] });
+    r.innerHTML = '<b></b><i></i><span class="n"></span><em class="tc"></em><span class="g"></span>';
+    H.tower.appendChild(r); H.rows.push({ el: r, p: r.children[0], c: r.children[1], n: r.children[2], tc: r.children[3], g: r.children[4] });
   }
   H.lightEls = Array.from(H.lights.children);
   buildMinimap();
@@ -4678,12 +5062,16 @@ function buildMinimap() {
   bg.strokeStyle = '#e8ecf2'; bg.lineWidth = 4; bg.stroke(H.mmPath);
   const sp = mmPt(TRACK.px[0], TRACK.pz[0]); bg.fillStyle = '#e10600'; bg.fillRect(sp[0] - 2, sp[1] - 6, 4, 12);
   H.mmBase = base;
+  H.mmPit = null;
+  const P = TDEF.pit;
+  if (P) { H.mmPit = new Path2D(); for (let s = P.s0; s <= P.s1; s += 5) { const q = TRACK.pointAt(s, P.side * Math.max(HW, pitOuter(s) - 6), {}), pp = mmPt(q.x, q.z); if (s === P.s0) H.mmPit.moveTo(pp[0], pp[1]); else H.mmPit.lineTo(pp[0], pp[1]); } }
 }
 function mmPt(x, z) { return [95 + (x - H.mm.cx) * H.mm.sc, 95 + (z - H.mm.cz) * H.mm.sc]; }
 function drawMinimap() {
   const g = H.minimap.getContext('2d'), d = H.mmScale;
   g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, H.minimap.width, H.minimap.height); g.drawImage(H.mmBase, 0, 0);
   g.setTransform(d, 0, 0, d, 0, 0);
+  if (PIT.open && H.mmPit) { g.strokeStyle = '#ffb000'; g.lineWidth = 2.5; g.stroke(H.mmPit); }
   for (const s of W.stops) { if (RACE.player && s.got.get(RACE.player) === RACE.player.lap) continue; const p = TRACK.pointAt(s.s, 0, TMP); const q = mmPt(p.x, p.z); g.fillStyle = '#ffc629'; g.beginPath(); g.arc(q[0], q[1], 3, 0, 7); g.fill(); }
   for (const b of RACE.buses) {
     if (b === RACE.player) continue;
@@ -4723,6 +5111,18 @@ function updateHUD(dt) {
   setT(H.hMod, Math.abs(net) > 0.0005 ? (net > 0 ? '+' : '−') + pct(net) : '');
   if (H.hMod.className !== mc) H.hMod.className = mc;
   if (H.speedfx._on !== p.boosting) { H.speedfx._on = p.boosting; H.speedfx.classList.toggle('on', p.boosting); }
+  if (RACE.tyres && p.tyre) {
+    const ty = p.tyre, w = Math.round(ty.wear), nx = p.plan && p.plan[p.planI];
+    setT(H.hTc, ty.c); if (H.hTc._c !== ty.c) { H.hTc._c = ty.c; H.hTc.style.setProperty('--tc', TYRES[ty.c].color); }
+    setW(H.hTyre, w / 100); setT(H.hTyrePct, w + '%');
+    const tcls = 'tyres' + (w < TYRES.cliff ? ' low' : w < 45 ? ' mid' : '') + (p.boxReq && !p.pit ? ' box' : '');
+    if (H.tyreBox.className !== tcls) H.tyreBox.className = tcls;
+    setT(H.hTplan, p.finished ? '' : p.pit ? 'Pit lane: the game drives' : p.boxReq ? 'BOX THIS LAP → ' + TYRES[nextCompound(p)].name + (TOUCH ? '' : ' · B: stay out') : nx ? 'Box after lap ' + nx.after + ' → ' + TYRES[nx.c].name : 'No stop planned' + (TOUCH ? '' : ' · B: box'));
+    if (p.pitStopT > 0) { if (H.pitBox.hidden) { H.pitBox.hidden = false; setT(H.hPitTxt, 'Fitting ' + TYRES[nextCompound(p)].name.toLowerCase() + ' tyres'); } setW(H.hPitBar, 1 - p.pitStopT / (p.pitMax || TYRES.pitTime)); }
+    else if (!H.pitBox.hidden) H.pitBox.hidden = true;
+    const boxOn = !!p.boxReq && !p.pit;
+    if (H.tBox._on !== boxOn) { H.tBox._on = boxOn; H.tBox.classList.toggle('held', boxOn); }
+  }
   if (msgTimer > 0) { msgTimer -= dt; if (msgTimer <= 0) H.msg.innerHTML = ''; }
   hudT -= dt; if (hudT > 0) return; hudT = 0.1;
   const st = standings(), pos = st.indexOf(p) + 1, lapShown = clamp(Math.max(1, p.lap), 1, RACE.laps);
@@ -4741,10 +5141,13 @@ function updateHUD(dt) {
     let g = '';
     if (b.finished) g = i === 0 ? 'FINISH' : '+' + (b.finishTime - leader.finishTime).toFixed(3);
     else if (b.penStopT > 0) g = 'PENALTY';
+    else if (RACE.tyres && b.pit) g = 'PIT';
     else if (i === 0) g = 'LEADER';
     else if (leader.progress - b.progress > TRACK.L) g = '+1 LAP';
     else g = '+' + Math.max(0, b.gap).toFixed(3);
     setT(r.g, g);
+    const tc = RACE.tyres && b.tyre ? b.tyre.c : '';
+    if (r.tc._c !== tc) { r.tc._c = tc; r.tc.textContent = tc; r.tc.style.setProperty('--tc', tc ? TYRES[tc].color : 'transparent'); r.tc.hidden = !tc; }
     const cls = 'trow' + (b === p ? ' me' : '') + (b.finished ? ' fin' : '') + (b.human && b !== p ? ' hum' : '');
     if (r.el.className !== cls) r.el.className = cls;
   });
@@ -4763,6 +5166,7 @@ function startRace() {
   if (NET.on) return;   // online races start from the lobby
   fadeTo(() => {
     if (TDEF.id !== RACE.track) { buildWorld(trackById(RACE.track)); afterWorld(); }
+    RACE.tyres = RACE.tyresPref; setPitOpen(RACE.tyres);
     const p = RACE.buses[RACE.busIdx];
     RACE.player = p;
     RACE.buses.forEach((b) => { b.isPlayer = b === p; b.human = b === p; b.remote = false; b.owner = null; b.net = null; });
@@ -4781,6 +5185,7 @@ function startRace() {
       b.vmul = b.isPlayer ? 1 : D.vmul * b.ai.base;
       b.ai.skill = D.skill * rr(0.96, 1.02); b.ai.greed = rr(0.6, 0.95); b.ai.stopDec = {};
       b.cp = Math.floor(b.progress / 20);
+      resetTyres(b, b.isPlayer ? myStrategy(RACE.laps) : pickStrategy(RACE.laps, RACE.diff));
     });
     finishRaceSetup(p, chosen);
     H.introHand.textContent = chosen.nick + ' drives the No. ' + p.def.num + ' ' + p.def.model + ' from the back of the grid. Go!';
@@ -4797,6 +5202,7 @@ function finishRaceSetup(p, chosen) {
   H.hDrvImg.src = chosen.photo; H.hDriver.style.setProperty('--dc', chosen.color); H.hDrvNick.textContent = chosen.nick;
   H.hDrvPassive.textContent = chosen.passive1.name + ' · ' + chosen.passive2.name;
   H.effHtml = ''; H.hEffs.innerHTML = '';
+  H.tyreBox.hidden = !RACE.tyres; H.tBox.hidden = !(RACE.tyres && TOUCH); H.pitBox.hidden = true;
   clearAbilWorld(); clearPlayerFX(); SFX.stopSong();
   showScreen(null);
   setState('intro');
@@ -4843,7 +5249,7 @@ Bus.prototype.crossLine = function () {
     if (this.isPlayer) playerFinished();
     return;
   }
-  if (this.stopPen > 0 && !this.finished) { servePenalty(this); return; }
+  if (this.stopPen > 0 && !this.finished && !RACE.tyres) { servePenalty(this); return; }   // with pit stops on, it is paid in the box
   if (this.isPlayer && !this.finished) {
     if (this.lap === RACE.laps && RACE.laps > 1) showMsg('Final lap', 'The finish is waiting at ' + TDEF.finishAt, 'warn', 2);
     else if (this.lap > 1) showMsg('Lap ' + this.lap, 'of ' + RACE.laps, '', 1.4);
@@ -4901,7 +5307,7 @@ function raceStep(dt) {
   const all = RACE.buses;
   for (const b of all) {
     if (b.remote) { remoteStep(b, dt); continue; }   // online: driven on another device
-    if (b.isPlayer && !b.finished) playerControls(b, dt); else aiDrive(b, dt, all);
+    if (b.isPlayer && !b.finished && !b.pit) playerControls(b, dt); else aiDrive(b, dt, all);   // in the pit lane the game drives
     b.impactCD = Math.max(0, b.impactCD - dt);
     b.step(dt, b.ctrl);
   }
@@ -4910,6 +5316,7 @@ function raceStep(dt) {
     if (!b.remote) {
       TRACK.project(b.x, b.z, b.hint, b.q); b.hint = b.q.idx;
       b.updateProgress();
+      tyreWear(b, dt); pitStep(b, dt);
     }
     const cp = Math.floor(b.progress / 20);
     while (b.cp < cp) { b.cp++; const f = RACE.firstPass[b.cp]; if (f === undefined) { RACE.firstPass[b.cp] = RACE.t; b.gap = 0; } else b.gap = RACE.t - f; }
@@ -4927,7 +5334,8 @@ function raceStep(dt) {
   if (p && RACE.state === 'race') {
     const along = p.vx * p.q.tx + p.vz * p.q.tz;
     p.wrongT = along < -3 ? p.wrongT + dt : Math.max(0, p.wrongT - dt * 2);
-    RACE.stuckT = p.speed < 1.2 && !(p.holdT > 0) ? RACE.stuckT + dt : 0;
+    RACE.stuckT = p.speed < 1.2 && !(p.holdT > 0) && !p.pit ? RACE.stuckT + dt : 0;
+    tyreWarnings(p);
     RACE.resetCD = Math.max(0, RACE.resetCD - dt);
   }
 }
@@ -4938,7 +5346,7 @@ function resetPlayer() {
 }
 
 // ---------- screens ----------
-const SCREENS = ['scrTitle', 'scrAbout', 'scrDriver', 'scrSelect', 'scrPause', 'scrResults', 'scrOnline'];
+const SCREENS = ['scrTitle', 'scrAbout', 'scrDriver', 'scrSelect', 'scrStrategy', 'scrPause', 'scrResults', 'scrOnline'];
 function showScreen(id) { SCREENS.forEach((s) => { $(s).hidden = s !== id; }); const el = id && $(id).querySelector('.btn.primary, .arrow'); if (el && !TOUCH) setTimeout(() => el.focus({ preventScroll: true }), 30); }
 function fadeTo(fn) { const f = $('fade'); f.classList.add('on'); setTimeout(() => { fn(); setTimeout(() => f.classList.remove('on'), 60); }, 360); }
 function goTitle() {
@@ -5025,6 +5433,8 @@ function renderSelect() {
   $('sTrack').textContent = TDEF.name + ' · ' + (TRACK.L / 1000).toFixed(2) + ' km. ' + TDEF.blurb;
   document.querySelectorAll('#optLaps button').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.v === RACE.laps)));
   document.querySelectorAll('#optDiff button').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.v === RACE.diff)));
+  document.querySelectorAll('#optTyres button').forEach((b) => b.setAttribute('aria-pressed', String(!!+b.dataset.v === RACE.tyresPref)));
+  setPitOpen(RACE.tyresPref);
 }
 function pickBus(delta) { RACE.busIdx = (RACE.busIdx + delta + BUSES.length) % BUSES.length; store.set('bus', RACE.busIdx); renderSelect(); SFX.tone(700, 0.06, 'square', 0.05); }
 function togglePause(force) {
@@ -5062,9 +5472,55 @@ function renderResults() {
     let t;
     if (b.finished) t = (i === 0 || !lead.finished ? fmt(b.finishTime) : fmt(b.finishTime) + ' <small style="color:var(--ink-3)">+' + (b.finishTime - lead.finishTime).toFixed(3) + '</small>') + (b.finishPen ? ' <small style="color:#ff8c7a">incl. ' + b.finishPen + ' s penalty</small>' : '');
     else t = '<span class="run">Running · lap ' + clamp(b.lap, 1, RACE.laps) + '/' + RACE.laps + '</span>';
-    return '<tr class="' + (b === p ? 'me' : '') + '"><td class="p">' + (i + 1) + '</td><td><span class="nm"><i style="background:' + b.def.hud + '"></i><span>' + (b.driver ? b.driver.nick + ' \u00b7 ' : '') + b.def.brand + ' ' + b.def.model + ' <small>No. ' + b.def.num + (b === p ? ' · you' : '') + '</small></span></span></td><td>' + t + '</td><td>' + (isFinite(b.best) ? fmt(b.best) : '—') + '</td><td>' + b.students + '</td></tr>';
+    return '<tr class="' + (b === p ? 'me' : '') + '"><td class="p">' + (i + 1) + '</td><td><span class="nm"><i style="background:' + b.def.hud + '"></i><span>' + (b.driver ? b.driver.nick + ' \u00b7 ' : '') + b.def.brand + ' ' + b.def.model + ' <small>No. ' + b.def.num + (b === p ? ' · you' : '') + '</small></span></span></td><td>' + t + '</td><td>' + (isFinite(b.best) ? fmt(b.best) : '—') + '</td><td>' + (RACE.tyres ? stintChips(b) : '—') + '</td><td>' + b.students + '</td></tr>';
   }).join('');
 }
+
+function stintChips(b) { return (b.stints || []).map((c) => '<i class="tc" style="--tc:' + TYRES[c].color + '">' + c + '</i>').join(''); }
+
+// ---------- tyre strategy (before every race with tyres on) ----------
+function myStrategy(laps) { return validStrategy(RACE.strategy && RACE.strategy.laps === laps ? RACE.strategy : store.get('strat.' + laps, null), laps); }
+function setStrategy(laps, st) { const v = validStrategy(st, laps); RACE.strategy = Object.assign({ laps }, v); store.set('strat.' + laps, v); return v; }
+// the plan editor: start set, stops (after which lap, which set), a bar of the stints, and how it compares with the fastest plan
+function renderStrategy(box, laps) {
+  const st = myStrategy(laps), maxS = Math.min(TYRES.maxStops, laps - 1);
+  const tyres = (sel, i) => TYRE_KEYS.map((c) => '<button type="button" class="tyre-b" style="--tc:' + TYRES[c].color + '" data-i="' + i + '" data-c="' + c + '" aria-pressed="' + (c === sel) + '" title="' + TYRES[c].name + '">' + c + '</button>').join('');
+  let h = '<div class="st-row"><span class="st-lbl">Start on</span><div class="st-tyres">' + tyres(st.start, -1) + '</div></div>';
+  h += '<div class="st-row"><span class="st-lbl">Pit stops</span><div class="seg st-n">' + Array.from({ length: maxS + 1 }, (_, n) => '<button type="button" data-n="' + n + '" aria-pressed="' + (n === st.stops.length) + '">' + n + '</button>').join('') + '</div></div>';
+  st.stops.forEach((x, i) => {
+    h += '<div class="st-row st-stop"><span class="st-lbl">Stop ' + (i + 1) + '</span><div class="st-lap"><button type="button" data-lap="' + i + '" data-d="-1" aria-label="Earlier">&minus;</button><b>after lap ' + x.after + '</b><button type="button" data-lap="' + i + '" data-d="1" aria-label="Later">+</button></div><div class="st-tyres">' + tyres(x.c, i) + '</div></div>';
+  });
+  let bar = '', prev = 0, c = st.start;
+  st.stops.concat([{ after: laps, c: null }]).forEach((x) => { const n = x.after - prev; bar += '<i style="flex:' + n + ';--tc:' + TYRES[c].color + '"><b>' + c + '</b>' + n + (n === 1 ? ' lap' : ' laps') + '</i>'; prev = x.after; c = x.c; });
+  h += '<div class="st-bar" aria-hidden="true">' + bar + '</div>';
+  const best = strategyList(laps)[0], diff = (estimateStrategy(st, laps) - best.t) * TRACK.L / 44;
+  h += '<p class="st-life">' + TYRE_KEYS.map((k) => '<b style="color:' + TYRES[k].color + '">' + TYRES[k].name + '</b> about ' + TYRES[k].life + ' laps').join(' · ') + '. Softer is faster but wears out sooner. When you pit, the game drives the pit lane and the crew changes the tyres.</p>';
+  h += '<p class="st-est">' + (diff < 0.3 ? 'This is the fastest plan we found.' : 'About ' + diff.toFixed(1) + ' s slower than the fastest plan (' + stratLong(best) + ').') + ' <button type="button" class="st-best">Use the fastest plan</button></p>';
+  box.innerHTML = h;
+  const redo = (v) => { setStrategy(laps, v); renderStrategy(box, laps); SFX.tone(700, 0.05, 'square', 0.04); };
+  box.querySelectorAll('.tyre-b').forEach((el) => el.addEventListener('click', () => { const i = +el.dataset.i; if (i < 0) st.start = el.dataset.c; else st.stops[i].c = el.dataset.c; redo(st); }));
+  box.querySelectorAll('.st-n button').forEach((el) => el.addEventListener('click', () => {
+    const n = +el.dataset.n, cs = st.stops.map((x) => x.c);
+    st.stops = Array.from({ length: n }, (_, i) => ({ after: Math.max(i + 1, Math.round(laps * (i + 1) / (n + 1))), c: cs[i] || (st.start === 'S' ? 'M' : 'S') }));
+    redo(st);
+  }));
+  box.querySelectorAll('.st-lap button').forEach((el) => el.addEventListener('click', () => {
+    const i = +el.dataset.lap, lo = i ? st.stops[i - 1].after + 1 : 1, hi = st.stops[i + 1] ? st.stops[i + 1].after - 1 : laps - 1;
+    st.stops[i].after = clamp(st.stops[i].after + +el.dataset.d, lo, hi); redo(st);
+  }));
+  box.querySelector('.st-best').addEventListener('click', () => redo(bestStrategy(laps)));
+}
+// "Race" on the bus screen: with tyres on, the plan comes first
+function goRace() {
+  SFX.init();
+  if (!RACE.tyresPref) { startRace(); return; }
+  if (TDEF.id !== RACE.track) { switchTrack(RACE.track, true, goRace); return; }
+  $('stTrack').textContent = TDEF.name + ' · ' + RACE.laps + (RACE.laps === 1 ? ' lap' : ' laps');
+  $('stPit').textContent = 'The pit lane is on the ' + (TDEF.pit.side < 0 ? 'left' : 'right') + ', ' + (pitAfterLine() ? 'right after the start line' : 'before the start line') + '.';
+  renderStrategy($('stratBox'), RACE.laps);
+  RACE.stratOpen = true; showScreen('scrStrategy');
+}
+function closeStrategy() { RACE.stratOpen = false; showScreen('scrSelect'); renderSelect(); }
 
 // ---------- keyboard shortcuts ----------
 function onKeyPress(e) {
@@ -5083,10 +5539,11 @@ function onKeyPress(e) {
   if (RACE.paused) { if (code === 'Escape' || code === 'KeyP') togglePause(false); return; }
   if (s === 'title') { if (code === 'Enter') { if (!$('btnStart').disabled) goDriver(); } return; }
   if (s === 'about') { if (code === 'Escape' || code === 'Enter') { setState('title'); showScreen('scrTitle'); } return; }
+  if (s === 'select' && RACE.stratOpen) { if (code === 'Enter') { RACE.stratOpen = false; startRace(); } else if (code === 'Escape') closeStrategy(); return; }
   if (s === 'select') {
     if (code === 'ArrowLeft' || code === 'KeyA') pickBus(-1);
     else if (code === 'ArrowRight' || code === 'KeyD') pickBus(1);
-    else if (code === 'Enter') startRace();
+    else if (code === 'Enter') goRace();
     else if (code === 'KeyT') { const i = TRACKS.findIndex((t) => t.id === RACE.track); switchTrack(TRACKS[(i + 1) % TRACKS.length].id, true, renderSelect); }
     else if (code === 'Escape') goDriver();
     return;
@@ -5096,6 +5553,7 @@ function onKeyPress(e) {
   if (code === 'Escape' || code === 'KeyP') { togglePause(); return; }
   if (code === 'KeyC') { CAM.ox = null; CAM.mode = (CAM.mode + 1) % 3; store.set('cam', CAM.mode); if (RACE.player) CAM.yaw = RACE.player.yaw; toast('Camera: ' + CAM_NAMES[CAM.mode]); return; }
   if (code === 'KeyR') { resetPlayer(); return; }
+  if (code === 'KeyB') { toggleBox(); return; }
   if (s === 'results' && code === 'Enter') startRace();
 }
 
@@ -5178,6 +5636,7 @@ function updateVisuals(dt) {
   updateCoinsRings(dt);
   updatePlayerFX(dt);
   W.crowdTime.value = clock;
+  updatePitCrews(dt, clock);
   if (W.anim) for (const f of W.anim) f(dt, clock);
   animateStops(dt, clock);
   if (W.flag) {
@@ -5319,7 +5778,10 @@ function wireUI() {
   $('btnAboutBack').addEventListener('click', () => { setState('title'); showScreen('scrTitle'); });
   $('sPrev').addEventListener('click', () => pickBus(-1));
   $('sNext').addEventListener('click', () => pickBus(1));
-  $('btnRace').addEventListener('click', startRace);
+  $('btnRace').addEventListener('click', goRace);
+  $('btnStratGo').addEventListener('click', () => { RACE.stratOpen = false; startRace(); });
+  $('btnStratBack').addEventListener('click', closeStrategy);
+  document.querySelectorAll('#optTyres button').forEach((b) => b.addEventListener('click', () => { RACE.tyresPref = !!+b.dataset.v; store.set('tyres', RACE.tyresPref); renderSelect(); }));
   $('btnSelBack').addEventListener('click', goDriver);
   document.querySelectorAll('#optLaps button').forEach((b) => b.addEventListener('click', () => { RACE.laps = +b.dataset.v; store.set('laps', RACE.laps); renderSelect(); }));
   document.querySelectorAll('#optDiff button').forEach((b) => b.addEventListener('click', () => { RACE.diff = +b.dataset.v; store.set('diff', RACE.diff); renderSelect(); }));
@@ -5348,6 +5810,7 @@ function wireUI() {
   $('aboutDrivers').innerHTML = DRIVERS.map((d, i) => '<li><b>' + (i + 1) + '</b><span>' + d.nick + ' <em>\u2014 ' + d.name + ' \u00b7 ' + d.passive1.name + ', ' + d.passive2.name + ' \u00b7 ability: ' + d.ability.name + '</em></span></li>').join('');
   $('btnMenu').addEventListener('click', goTitle);
   ['tL', 'tR', 'tGas', 'tBrake', 'tBoost', 'tDrift'].forEach((id, i) => bindTouch(id, ['left', 'right', 'up', 'down', 'boost', 'hb'][i], id === 'tBoost' ? tryPlayerAbility : null));
+  $('tBox').addEventListener('pointerdown', (e) => { e.preventDefault(); SFX.init(); toggleBox(); });
   $('checkCard').addEventListener('pointerdown', (e) => { e.preventDefault(); pressCheck(); });
   $('gl').addEventListener('pointerdown', () => { SFX.init(); if (RACE.state === 'intro' && !NET.racing) setState('countdown'); });
   document.addEventListener('visibilitychange', () => { if (document.hidden && !NET.racing && (RACE.state === 'race' || RACE.state === 'countdown')) togglePause(true); });

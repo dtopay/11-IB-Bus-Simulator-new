@@ -109,6 +109,46 @@ button:focus-visible,.seg button:focus-visible{outline:3px solid var(--yellow);o
 .seg button[aria-pressed="true"]{background:var(--ink);color:#0b0e13;border-color:var(--ink)}
 .opt-track{flex-direction:column;align-items:stretch;gap:6px}.seg-track{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.seg-track button{padding:6px 8px}
 .sel-track{margin:0;font-size:13px;line-height:1.45;color:var(--ink-2);max-width:44ch}
+/* ---------- tyres, pit stops, strategy ---------- */
+.tc{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;box-sizing:border-box;border:3px solid var(--tc,#888);background:#111;color:#fff;font:normal 900 11px/1 var(--display)}
+.tyres{display:grid;grid-template-columns:auto 1fr auto;gap:4px 8px;align-items:center;width:250px;box-sizing:border-box;background:var(--panel);padding:6px 12px;font-family:var(--display);font-style:italic;font-weight:800;font-size:12px;letter-spacing:.12em;color:var(--ink-2)}
+.tyres b{font-size:14px;color:var(--ink);font-variant-numeric:tabular-nums;min-width:4ch;text-align:right;letter-spacing:.02em}
+.tyres .tplan{grid-column:1/-1;font-size:11px;letter-spacing:.04em;color:var(--ink-2);font-style:normal;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tyres.box .tplan{color:#111;background:var(--yellow);padding:2px 6px;animation:blink .6s steps(2) infinite}
+.tyre-bar{height:10px;background:rgba(255,255,255,.1);transform:skewX(-20deg);overflow:hidden}
+.tyre-bar i{display:block;height:100%;width:100%;background:var(--green)}
+.tyres.mid .tyre-bar i{background:var(--yellow)}
+.tyres.low .tyre-bar i{background:var(--red)}
+.tyres.low b{color:#ff6b5e;animation:blink .6s steps(2) infinite}
+#pitBox{position:absolute;left:50%;top:38%;transform:translateX(-50%);background:var(--panel);padding:12px 18px;min-width:240px;box-sizing:border-box;text-align:center;font-family:var(--display);font-style:italic}
+#pitBox b{display:block;font-weight:900;font-size:24px;letter-spacing:.06em}
+#pitBox small{display:block;font-size:13px;color:var(--ink-2);margin:2px 0 8px;font-style:normal;font-weight:700}
+.pit-bar{height:12px;background:rgba(255,255,255,.12);transform:skewX(-20deg);overflow:hidden}
+.pit-bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--yellow),var(--green))}
+.trow .tc{width:18px;height:18px;border-width:2px;font-size:9px;margin-right:4px}
+#rBody .tc{margin-right:3px}
+#tBox{right:calc(max(16px,env(safe-area-inset-right,0px)) + 96px);bottom:calc(max(24px,env(safe-area-inset-bottom,0px)) + 142px);width:76px;height:44px;color:var(--yellow)!important}
+.strat-sheet{max-width:620px}
+.strat-body{padding:6px 24px 4px;overflow:auto}
+.st-pit{margin:0 0 10px;font-size:14px;color:var(--ink-2)}
+.strat{display:grid;gap:10px}
+.st-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.st-lbl{min-width:84px;font-size:13px;text-transform:uppercase;letter-spacing:.1em;color:var(--ink-2);font-weight:700}
+.st-tyres{display:flex;gap:8px}
+.tyre-b{appearance:none;cursor:pointer;width:40px;height:40px;border-radius:50%;border:5px solid var(--tc);background:#12151b;color:#fff;font:normal 900 16px/1 var(--display);opacity:.5}
+.tyre-b[aria-pressed="true"]{opacity:1;box-shadow:0 0 0 3px rgba(255,255,255,.85)}
+.tyre-b:focus-visible{outline:3px solid var(--yellow);outline-offset:3px}
+.st-lap{display:flex;align-items:center;gap:6px}
+.st-lap button{appearance:none;cursor:pointer;width:32px;height:32px;border:1px solid var(--line);background:transparent;color:var(--ink);font:900 18px/1 var(--display)}
+.st-lap b{min-width:9ch;text-align:center;font-family:var(--display);font-style:italic;font-weight:800;font-size:15px}
+.st-bar{display:flex;gap:3px;height:30px}
+.st-bar i{display:flex;align-items:center;gap:6px;padding:0 8px;min-width:0;overflow:hidden;white-space:nowrap;background:rgba(255,255,255,.07);border-bottom:4px solid var(--tc);font:normal 700 12px/1 var(--ui);color:var(--ink-2)}
+.st-bar i b{color:var(--tc);font:900 14px/1 var(--display)}
+.st-life,.st-est{margin:0;font-size:13px;line-height:1.5;color:var(--ink-2)}
+.st-best{appearance:none;cursor:pointer;border:1px solid var(--line);background:transparent;color:var(--ink);padding:4px 10px;font:800 12px/1.2 var(--display);text-transform:uppercase;letter-spacing:.06em;margin-left:4px}
+@media (max-width:760px){.tyres{width:200px}.tyres .tplan{font-size:10px}}
+@media (max-width:639px){body.touch .tyres{width:164px}}
+@media (prefers-reduced-motion:reduce){.tyres.low b,.tyres.box .tplan{animation:none}}
 .sel-nav{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .arrow{appearance:none;border:1px solid var(--line);background:var(--panel);width:48px;height:48px;cursor:pointer;font-size:20px;display:grid;place-items:center}
 .arrow:hover{background:#2a3242}
@@ -132,10 +172,11 @@ button:focus-visible,.seg button:focus-visible{outline:3px solid var(--yellow);o
 .tower{position:absolute;top:max(16px,env(safe-area-inset-top,0px));right:max(16px,env(safe-area-inset-right,0px));width:228px;background:var(--panel);font-family:var(--ui)}
 .tower-head{display:flex;justify-content:space-between;align-items:center;padding:6px 10px;background:#000;font-family:var(--display);font-style:italic;font-weight:900;font-size:15px;letter-spacing:.06em}
 .tower-head em{font-style:italic;color:var(--red)}
-.trow{display:grid;grid-template-columns:24px 5px 1fr auto;gap:8px;align-items:center;padding:4px 10px;border-top:1px solid rgba(255,255,255,.06);font-size:15px;font-weight:700;font-variant-numeric:tabular-nums}
+.trow{display:grid;grid-template-columns:24px 5px 1fr auto auto;gap:8px;align-items:center;padding:4px 10px;border-top:1px solid rgba(255,255,255,.06);font-size:15px;font-weight:700;font-variant-numeric:tabular-nums}
 .trow b{font-family:var(--display);font-style:italic;font-weight:900;text-align:center}
 .trow i{height:16px;background:#888}
-.trow .g{color:var(--ink-2);font-size:13px}
+.trow .g{color:var(--ink-2);font-size:13px;white-space:nowrap}
+.trow .n{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .trow.me{background:rgba(255,198,41,.16)}
 .trow.me .n{color:var(--yellow)}
 .trow.fin .g{color:var(--green)}
@@ -381,7 +422,7 @@ table.cls{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;
   .stats{gap:6px}
   .tower{width:150px}
   .tower-head{font-size:13px;padding:5px 8px}
-  .trow{font-size:13px;padding:3px 8px;gap:6px;grid-template-columns:20px 5px 1fr}
+  .trow{font-size:13px;padding:3px 8px;gap:6px;grid-template-columns:20px 5px 1fr auto}
   .trow .g{display:none}
   .iconbtn{top:calc(max(16px,env(safe-area-inset-top,0px)) + 180px);right:max(16px,env(safe-area-inset-right,0px))}
   .posbox b{font-size:40px}
@@ -450,7 +491,9 @@ body.touch .dash{bottom:auto;top:calc(max(16px,env(safe-area-inset-top,0px)) + 1
         <div class="abil-bar"><i id="hAbFill"></i></div>
         <div class="abil-hint" id="hAbHint">Pick up students at the bus stops</div>
       </div>
+      <div class="tyres" id="tyreBox" hidden><i class="tc" id="hTc">M</i><div class="tyre-bar"><i id="hTyre"></i></div><b id="hTyrePct">100%</b><small class="tplan" id="hTplan"></small></div>
     </div>
+    <div id="pitBox" hidden><b>PIT STOP</b><small id="hPitTxt"></small><div class="pit-bar"><i id="hPitBar"></i></div></div>
     <div class="lights" id="lights" hidden><i></i><i></i><i></i><i></i><i></i></div>
     <div class="intro" id="intro" hidden>
       <span id="introTop">ROUND 1 &middot; ANKARA</span>
@@ -468,7 +511,7 @@ body.touch .dash{bottom:auto;top:calc(max(16px,env(safe-area-inset-top,0px)) + 1
     <div id="revWarn" hidden><b>&#8644; REVERSED CONTROLS</b><span>You are inside Volkan's marginal field</span></div>
     <div id="quizCard" hidden><div class="eyebrow">FizikCan &middot; math question</div><b id="qzText">7 &times; 8 = ?</b><div class="qz-opts"><span id="qzL"></span><span id="qzR"></span></div><small id="qzHint"></small></div>
     <div id="checkCard" hidden><div class="eyebrow">Ali's sweet crisis &middot; reaction check</div><div class="chk-bar"><i id="chkZone"></i><u id="chkMark"></u></div><b id="chkMsg">Press SHIFT when the marker is in the green</b></div>
-    <div class="hint" id="hint"><kbd>↑</kbd> gas <kbd>↓</kbd> brake <kbd>←</kbd><kbd>→</kbd> steer <kbd>Space</kbd> drift <kbd>Shift</kbd> ability <kbd>H</kbd> horn <kbd>C</kbd> camera <kbd>R</kbd> reset <kbd>P</kbd> pause</div>
+    <div class="hint" id="hint"><kbd>↑</kbd> gas <kbd>↓</kbd> brake <kbd>←</kbd><kbd>→</kbd> steer <kbd>Space</kbd> drift <kbd>Shift</kbd> ability <kbd>H</kbd> horn <kbd>C</kbd> camera <kbd>R</kbd> reset <kbd>B</kbd> box <kbd>P</kbd> pause</div>
   </div>
 
   <div id="touch" hidden>
@@ -476,6 +519,7 @@ body.touch .dash{bottom:auto;top:calc(max(16px,env(safe-area-inset-top,0px)) + 1
     <button id="tR" aria-label="Steer right">&#9654;</button>
     <button id="tBoost" aria-label="Use ability">ABILITY</button>
     <button id="tDrift" aria-label="Drift">DRIFT</button>
+    <button id="tBox" aria-label="Box this lap" hidden>BOX</button>
     <button id="tBrake" aria-label="Brake">BRAKE</button>
     <button id="tGas" aria-label="Gas">GAS</button>
   </div>
@@ -564,6 +608,7 @@ body.touch .dash{bottom:auto;top:calc(max(16px,env(safe-area-inset-top,0px)) + 1
           <div class="opt"><span>Laps</span><div class="seg" id="optLaps"><button id="lap3" data-v="3">3</button><button id="lap6" data-v="6">6</button><button id="lap10" data-v="10">10</button></div></div>
           <div class="opt"><span>Rivals</span><div class="seg" id="optDiff"><button id="dif0" data-v="0">Easy</button><button id="dif1" data-v="1">Normal</button><button id="dif2" data-v="2">Hard</button></div></div>
           <div class="opt opt-track"><span>Track</span><div class="seg seg-track" id="optTrack"></div></div>
+          <div class="opt"><span>Tyres &amp; pits</span><div class="seg" id="optTyres"><button data-v="1">On</button><button data-v="0">Off</button></div></div>
         </div>
         <p class="sel-track" id="sTrack"></p>
         <p class="sel-pb" id="sPB"></p>
@@ -572,6 +617,20 @@ body.touch .dash{bottom:auto;top:calc(max(16px,env(safe-area-inset-top,0px)) + 1
           <button class="btn" id="btnSelBack">Back</button>
         </div>
       </div>
+    </div>
+  </section>
+
+  <section id="scrStrategy" class="screen scrim-full" hidden>
+    <div class="sheet strat-sheet">
+      <div class="sheet-head">
+        <div><div class="eyebrow">Before the race</div><h2>Tyre strategy</h2></div>
+        <span class="tab" id="stTrack">3 laps</span>
+      </div>
+      <div class="strat-body">
+        <p class="st-pit" id="stPit"></p>
+        <div class="strat" id="stratBox"></div>
+      </div>
+      <div class="sheet-foot"><div class="btn-row"><button class="btn primary" id="btnStratGo">Start race &#9656;</button><button class="btn" id="btnStratBack">Back</button></div></div>
     </div>
   </section>
 
@@ -594,8 +653,10 @@ body.touch .dash{bottom:auto;top:calc(max(16px,env(safe-area-inset-top,0px)) + 1
           <p class="on-bots" id="onBots"></p>
           <div class="on-pick"><span class="eyebrow">Your driver</span><div class="on-drvs" id="onDrv"></div><p class="on-info" id="onDrvInfo"></p></div>
           <div class="on-pick"><span class="eyebrow">Your bus</span><div class="on-buses" id="onBus"></div></div>
+          <div class="on-pick" id="onStratWrap" hidden><span class="eyebrow">Your tyre strategy</span><div class="strat" id="onStrat"></div></div>
           <div class="opts" id="onHostOpts">
             <div class="opt opt-track"><span>Track</span><div class="seg seg-track" id="onTrack"></div></div>
+            <div class="opt"><span>Tyres &amp; pits</span><div class="seg" id="onTyres"><button data-v="1">On</button><button data-v="0">Off</button></div></div>
             <div class="opt"><span>Laps</span><div class="seg" id="onLaps"><button data-v="3">3</button><button data-v="6">6</button><button data-v="10">10</button></div></div>
             <div class="opt"><span>Bots</span><div class="seg" id="onDiff"><button data-v="0">Easy</button><button data-v="1">Normal</button><button data-v="2">Hard</button></div></div>
           </div>
@@ -642,7 +703,7 @@ body.touch .dash{bottom:auto;top:calc(max(16px,env(safe-area-inset-top,0px)) + 1
       </div>
       <div class="table-wrap">
         <table class="cls">
-          <thead><tr><th>Pos</th><th>Bus</th><th>Time</th><th>Best lap</th><th>Students</th></tr></thead>
+          <thead><tr><th>Pos</th><th>Bus</th><th>Time</th><th>Best lap</th><th>Tyres</th><th>Students</th></tr></thead>
           <tbody id="rBody"></tbody>
         </table>
       </div>
