@@ -72,27 +72,8 @@ function deriveStats(def) {
 
 // ---------- circuit ----------
 const HW = 10, KERB = 1.4, WALL = 15.5;
-// pit lane on the left of the run back to the start, right after the car park
-const PIT = { s0: 1978, s1: 2108, taper: 30, gap: 38, w: 12, v: 22, time: 2.6, box: 9 };
-PIT.fast = -(WALL + 4); PIT.boxLat = -(WALL + 9); PIT.crewLat = -(WALL + 11.2);
-PIT.boxS = (k) => PIT.s0 + PIT.gap + PIT.box / 2 + k * PIT.box;
-const DIV_IN = WALL + 0.25, DIV_OUT = WALL + 0.95;
-const smooth01 = (a) => a * a * (3 - 2 * a);
-function pitOuter(s) {
-  if (s < PIT.s0 || s > PIT.s1) return -WALL;
-  return -(WALL + PIT.w * smooth01(clamp(Math.min((s - PIT.s0) / PIT.taper, (PIT.s1 - s) / PIT.taper), 0, 1)));
-}
-const hasDivider = (s) => s > PIT.s0 + PIT.gap && s < PIT.s1 - PIT.gap;
-const inPitZone = (s, d) => s > PIT.s0 && s < PIT.s1 && d < -(HW - 0.5);
-// lateral limits for a bus centre line at track distance s (the pit divider splits the left side in two)
-function latLimits(s, d, out) {
-  let lo = -WALL, hi = WALL;
-  if (s >= PIT.s0 && s <= PIT.s1) {
-    if (hasDivider(s)) { if (d > -(DIV_IN + DIV_OUT) / 2) lo = -DIV_IN; else { hi = -DIV_OUT; lo = pitOuter(s); } }
-    else lo = pitOuter(s);
-  }
-  out.lo = lo; out.hi = hi; return out;
-}
+// lateral limits for a bus centre line: the walls (or barriers) on both sides
+function latLimits(s, d, out) { out.lo = -WALL; out.hi = WALL; return out; }
 const CTRL = [
   [0, 0], [150, 0], [290, 0], [370, 25], [405, 100], [380, 180], [300, 215],
   [225, 195], [165, 235], [150, 315], [195, 385], [170, 455], [95, 470], [25, 430],
@@ -335,9 +316,23 @@ const col = (hex) => new THREE.Color(hex).convertSRGBToLinear();
 let renderer, scene, camera, sun, hemi, skyMesh, TRACK;
 const W = { stops: [], lights: [], crowdTime: { value: 0 }, flag: null, flagBase: null, cloudGroup: null, gantryBulbs: [], reserved: [] };
 
+// graphics drawn by the processor instead of a graphics chip (old school PCs, blocked drivers) need the lightest settings
+let SOFT_GL = false;
+function glName() {
+  try {
+    const c = document.createElement('canvas'), gl = c.getContext('webgl2') || c.getContext('webgl');
+    if (!gl) return '';
+    const e = gl.getExtension('WEBGL_debug_renderer_info'), name = String(gl.getParameter(e ? e.UNMASKED_RENDERER_WEBGL : gl.RENDERER) || '');
+    const lose = gl.getExtension('WEBGL_lose_context'); if (lose) lose.loseContext();
+    return name;
+  } catch (e) { return ''; }
+}
 function initRenderer() {
   const canvas = $('gl');
-  renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+  SOFT_GL = /swiftshader|llvmpipe|softpipe|software|basic render/i.test(glName());
+  // edge smoothing (multisampling) costs a lot on weak graphics chips: the low setting goes without it
+  const aa = !SOFT_GL && store.get('quality', TOUCH ? 'medium' : 'high') !== 'low';
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: aa, powerPreference: 'high-performance' });
   renderer.outputEncoding = THREE.sRGBEncoding;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.05;
@@ -417,6 +412,32 @@ function roadDecal(w, h, map, s, lat, y, opts) {
   placeOnTrack(mesh, s, lat, y, Math.PI);
   mesh.renderOrder = 2;
   scene.add(mesh); return mesh;
+}
+// three r128 never frustum-culls an InstancedMesh, so a big set is split into cells with their own
+// bounds: the cells share one set of buffers, and only the ones in view (or in the shadow box) are drawn
+function splitInstanced(mesh, cell) {
+  const g = mesh.geometry, n = mesh.count, M = new THREE.Matrix4(), C = new THREE.Color(), P = new THREE.Vector3(), cells = new Map();
+  if (!g.boundingSphere) g.computeBoundingSphere();
+  const gr = g.boundingSphere.center.length() + g.boundingSphere.radius;
+  for (let i = 0; i < n; i++) {
+    mesh.getMatrixAt(i, M); P.setFromMatrixPosition(M);
+    const k = Math.floor(P.x / cell) + ':' + Math.floor(P.z / cell);
+    let list = cells.get(k); if (!list) cells.set(k, list = []); list.push(i);
+  }
+  const parent = mesh.parent, out = [];
+  for (const list of cells.values()) {
+    const cg = new THREE.BufferGeometry(); cg.setIndex(g.index);
+    for (const a in g.attributes) cg.setAttribute(a, g.attributes[a]);
+    const cm = new THREE.InstancedMesh(cg, mesh.material, list.length), ctr = new THREE.Vector3();
+    list.forEach((i, j) => { mesh.getMatrixAt(i, M); cm.setMatrixAt(j, M); ctr.add(P.setFromMatrixPosition(M)); if (mesh.instanceColor) { mesh.getColorAt(i, C); cm.setColorAt(j, C); } });
+    ctr.divideScalar(list.length);
+    let r = 0; list.forEach((i) => { mesh.getMatrixAt(i, M); r = Math.max(r, P.setFromMatrixPosition(M).distanceTo(ctr) + gr * M.getMaxScaleOnAxis()); });
+    cg.boundingSphere = new THREE.Sphere(ctr, r);
+    cm.frustumCulled = true; cm.castShadow = mesh.castShadow; cm.receiveShadow = mesh.receiveShadow; cm.renderOrder = mesh.renderOrder;
+    parent.add(cm); out.push(cm);
+  }
+  parent.remove(mesh);
+  return out;
 }
 function reserve(x, z, r) { W.reserved.push({ x, z, r }); }
 function isReserved(x, z, r) { for (const q of W.reserved) { const dx = q.x - x, dz = q.z - z; if (dx * dx + dz * dz < (q.r + r) * (q.r + r)) return true; } return false; }
@@ -532,16 +553,8 @@ function buildCircuit() {
   const topMat = new THREE.MeshLambertMaterial({ color: col(0xb9bcc0) });
   const outMat = new THREE.MeshLambertMaterial({ color: col(0x8e9296) });
   const wi0 = (p1 + 6) % N, wcnt = N - (p1 - p0) - 12, WH = 1.15;
-  // the left wall is replaced by the pit lane between PIT.s0 and PIT.s1
-  const pa = Math.floor(PIT.s0 / T.ds) - wi0, pb = Math.ceil(PIT.s1 / T.ds) - wi0;
-  const wallRanges = (side) => {
-    if (side > 0 || pb <= 0 || pa >= wcnt) return [[wi0, wcnt]];
-    const r = [];
-    if (pa > 0) r.push([wi0, pa]);
-    if (pb < wcnt) r.push([(wi0 + pb) % N, wcnt - pb]);
-    return r;
-  };
-  for (const side of [1, -1]) for (const [ri0, rcnt] of wallRanges(side)) {
+  for (const side of [1, -1]) {
+    const ri0 = wi0, rcnt = wcnt;
     const d = side * WALL, d2 = side * (WALL + 0.55);
     const inner = stripGeo(T, d, d, 0, WH, { i0: ri0, cnt: rcnt, vLen: 32, swap: true, flip: side < 0, flipV: side > 0 });
     const top = side > 0 ? stripGeo(T, d, d2, WH, WH, { i0: ri0, cnt: rcnt }) : stripGeo(T, d2, d, WH, WH, { i0: ri0, cnt: rcnt });
@@ -566,7 +579,7 @@ function buildCircuit() {
     }
   }
   barriers.count = bi; barriers.castShadow = true;
-  scene.add(barriers);
+  scene.add(barriers); splitInstanced(barriers, 60);
 
   // start / finish line, grid boxes, painted lettering
   roadDecal(20, 1.6, texChecker(25, 2), 0, 0, 0.06);
@@ -768,6 +781,7 @@ function finishCrowd() {
     bodies.setColorAt(i, col(pick(shirts))); heads.setColorAt(i, col(pick(skins)));
   });
   scene.add(bodies, heads);
+  splitInstanced(bodies, 40); splitInstanced(heads, 40);
 }
 function buildStands() {
   const L = TRACK.L;
@@ -959,7 +973,7 @@ function buildCity() {
   }
   const lamps = new THREE.InstancedMesh(lampG, VCMAT(), lampSpots.length);
   lampSpots.forEach(([x, z, yaw], i) => { d.position.set(x, 0, z); d.rotation.set(0, yaw, 0); d.scale.set(1, 1, 1); d.updateMatrix(); lamps.setMatrixAt(i, d.matrix); });
-  lamps.castShadow = true; scene.add(lamps);
+  lamps.castShadow = true; scene.add(lamps); splitInstanced(lamps, 150);
 
   // parked cars in the lot
   const carG = mergeColored([[boxAt(1.8, 0.8, 4.3, 0, 0.6, 0), 0xffffff], [boxAt(1.6, 0.6, 2.2, 0, 1.25, -0.2), 0xffffff], [boxAt(1.62, 0.45, 2.0, 0, 1.25, -0.2), 0x222a33]]);
@@ -1025,138 +1039,8 @@ function buildWorld() {
   buildSchool();
   buildStands();
   buildStops();
-  buildPit();
   buildCity();
   buildHorizon();
-}
-
-// =====================================================================
-//  PIT LANE: surfaces, walls, garages, boxes and crews (left side, after the car park)
-// =====================================================================
-const PITV = { crews: [] };
-function crewGeo(color) {
-  return mergeColored([
-    [boxAt(0.17, 0.85, 0.2, -0.1, 0.425, 0), 0x22262c], [boxAt(0.17, 0.85, 0.2, 0.1, 0.425, 0), 0x22262c],
-    [boxAt(0.52, 0.66, 0.3, 0, 1.18, 0), color], [boxAt(0.12, 0.6, 0.14, -0.33, 1.2, 0), color], [boxAt(0.12, 0.6, 0.14, 0.33, 1.2, 0), color],
-    [boxAt(0.28, 0.3, 0.28, 0, 1.67, 0), 0xe0b08a], [boxAt(0.32, 0.12, 0.34, 0, 1.86, 0.02), color],
-  ]);
-}
-function buildPit() {
-  const T = TRACK, i0 = Math.floor(PIT.s0 / T.ds), cnt = Math.ceil(PIT.s1 / T.ds) - i0;
-  // lane surface from the road edge out to the outer pit wall
-  const laneMat = new THREE.MeshStandardMaterial({ map: texAsphalt(false), roughness: 0.92, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
-  const lane = new THREE.Mesh(stripGeo(T, (s) => pitOuter(s) - 0.4, -HW + 0.2, 0.028, 0.028, { i0, cnt, vLen: 16 }), laneMat);
-  lane.receiveShadow = true; scene.add(lane);
-  // outer wall that follows the widening
-  const WH = 1.15;
-  const pitTex = texLabel(2048, 128, (g, w, h) => {
-    for (let i = 0; i < 4; i++) {
-      g.fillStyle = i % 2 ? '#f2f2f2' : '#1b2230'; g.fillRect(i * 512, 0, 512, h);
-      g.fillStyle = i % 2 ? '#e10600' : '#ffc629'; g.font = `italic 900 76px ${FONT_D}`; g.textAlign = 'center'; g.textBaseline = 'middle';
-      fitText(g, i % 2 ? 'PIT LANE' : 'TYRES · BOX', i * 512 + 256, 68, 470);
-    }
-  });
-  pitTex.wrapS = pitTex.wrapT = THREE.RepeatWrapping;
-  const outerOff = (s) => pitOuter(s) - 0.55;
-  const wallIn = new THREE.Mesh(stripGeo(T, pitOuter, pitOuter, 0, WH, { i0, cnt, vLen: 16, swap: true, flip: true }), new THREE.MeshLambertMaterial({ map: pitTex }));
-  const wallTop = new THREE.Mesh(stripGeo(T, outerOff, pitOuter, WH, WH, { i0, cnt }), new THREE.MeshLambertMaterial({ color: col(0xb9bcc0) }));
-  const wallOut = new THREE.Mesh(stripGeo(T, outerOff, outerOff, 0, WH, { i0, cnt }), new THREE.MeshLambertMaterial({ color: col(0x8e9296) }));
-  wallIn.castShadow = wallTop.castShadow = true; wallIn.receiveShadow = true;
-  scene.add(wallIn, wallTop, wallOut);
-  // red and white divider between the circuit and the pit lane
-  const da = Math.ceil((PIT.s0 + PIT.gap) / T.ds), dcnt = Math.floor((PIT.s1 - PIT.gap) / T.ds) - da, DH = 0.95;
-  const divMat = new THREE.MeshLambertMaterial({ map: texKerb() });
-  const dIn = new THREE.Mesh(stripGeo(T, -DIV_IN, -DIV_IN, 0, DH, { i0: da, cnt: dcnt, vLen: 3.2, swap: true, flip: true }), divMat);
-  const dOut = new THREE.Mesh(stripGeo(T, -DIV_OUT, -DIV_OUT, 0, DH, { i0: da, cnt: dcnt, vLen: 3.2, swap: true }), divMat);
-  const dTop = new THREE.Mesh(stripGeo(T, -DIV_OUT, -DIV_IN, DH, DH, { i0: da, cnt: dcnt }), new THREE.MeshLambertMaterial({ color: col(0xf2f2f2) }));
-  dIn.castShadow = dOut.castShadow = true; scene.add(dIn, dOut, dTop);
-  for (const s of [PIT.s0 + PIT.gap, PIT.s1 - PIT.gap]) {
-    const cap = new THREE.Mesh(new THREE.BoxGeometry(0.9, DH + 0.1, 0.5), new THREE.MeshLambertMaterial({ color: col(0xffc629) }));
-    placeOnTrack(cap, s, -(DIV_IN + DIV_OUT) / 2, (DH + 0.1) / 2); scene.add(cap);
-  }
-  // boxes painted on the lane
-  for (let k = 0; k < 6; k++) {
-    const d = BUSES[k];
-    const bt = texLabel(256, 512, (g, w, h) => {
-      g.fillStyle = 'rgba(255,198,41,.16)'; g.fillRect(0, 0, w, h);
-      g.strokeStyle = '#ffc629'; g.lineWidth = 12; g.strokeRect(8, 8, w - 16, h - 16);
-      g.fillStyle = d.hud; g.fillRect(8, h - 70, w - 16, 20);
-      g.fillStyle = '#f2f2f2'; g.font = `italic 900 170px ${FONT_D}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(String(d.num), w / 2, h / 2 - 20);
-      g.font = `800 48px ${FONT_D}`; g.fillText('BOX', w / 2, h / 2 + 100);
-    });
-    roadDecal(4.4, 8, bt, PIT.boxS(k), PIT.boxLat, 0.07);
-  }
-  const lim = texLabel(512, 256, (g, w, h) => {
-    g.strokeStyle = '#f4f4f4'; g.lineWidth = 16; g.beginPath(); g.arc(w / 2, h / 2, 110, 0, Math.PI * 2); g.stroke();
-    g.fillStyle = '#f4f4f4'; g.font = `900 120px ${FONT_U}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('80', w / 2, h / 2 + 6);
-  });
-  roadDecal(5, 2.5, lim, PIT.s0 + PIT.gap - 6, PIT.fast, 0.07);
-  const arrow = texLabel(512, 256, (g, w, h) => {
-    g.fillStyle = 'rgba(245,245,245,.85)'; g.font = `italic 900 120px ${FONT_D}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('PIT', w / 2 + 60, h / 2 + 6);
-    g.beginPath(); g.moveTo(40, h / 2); g.lineTo(150, h / 2 - 70); g.lineTo(150, h / 2 + 70); g.closePath(); g.fill();
-  });
-  roadDecal(7, 3.5, arrow, PIT.s0 - 45, -5.5, 0.07);
-  // entry sign
-  const sg = new THREE.Group(); const sp = placeOnTrack(sg, PIT.s0 - 80, -(WALL + 2.4), 0); sg.rotation.y = sp.yaw + Math.PI;
-  const signTex = texLabel(512, 160, (g, w, h) => {
-    g.fillStyle = '#111'; g.fillRect(0, 0, w, h); g.fillStyle = '#ffc629';
-    g.beginPath(); g.moveTo(30, h / 2); g.lineTo(130, 22); g.lineTo(130, h - 22); g.closePath(); g.fill();
-    g.font = `italic 900 96px ${FONT_D}`; g.textAlign = 'left'; g.textBaseline = 'middle'; g.fillText('PIT LANE', 160, h / 2 + 4);
-  });
-  const board = new THREE.Mesh(new THREE.PlaneGeometry(7, 2.2), new THREE.MeshBasicMaterial({ map: signTex, toneMapped: false })); board.position.y = 4.4; sg.add(board);
-  sg.add(new THREE.Mesh(mergeColored([[cylAt(0.12, 0.12, 4.4, 6, -2.8, 2.2, 0.08), 0x5d636b], [cylAt(0.12, 0.12, 4.4, 6, 2.8, 2.2, 0.08), 0x5d636b]]), VCMAT()));
-  scene.add(sg);
-  // garages facing the boxes
-  const sMid = (PIT.boxS(0) + PIT.boxS(5)) / 2, len = PIT.box * 6, dep = 13, hgt = 7.5;
-  const gp = TRACK.pointAt(sMid, -(WALL + PIT.w + 0.55 + dep / 2 + 0.6), {});
-  const grp = new THREE.Group(); grp.position.set(gp.x, 0, gp.z); grp.rotation.y = facingTrack(gp, -1);
-  const gTex = texLabel(2304, 320, (g, w, h) => {
-    g.fillStyle = '#d9dde2'; g.fillRect(0, 0, w, h);
-    g.fillStyle = '#12161f'; g.fillRect(0, 0, w, 70);
-    g.fillStyle = '#ffffff'; g.font = `italic 900 54px ${FONT_D}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('PIT LANE · SCHOOL BUS RACE · ANKA BİLİM GP', w / 2, 38);
-    const bw = w / 6;
-    for (let k = 0; k < 6; k++) {
-      const x = k * bw;
-      g.fillStyle = BUSES[k].hud; g.fillRect(x + 14, 84, bw - 28, 40);
-      g.fillStyle = '#111'; g.font = `italic 900 34px ${FONT_D}`; g.fillText(BUSES[k].num + ' · ' + BUSES[k].model.toUpperCase(), x + bw / 2, 106);
-      const gr = g.createLinearGradient(0, 130, 0, h); gr.addColorStop(0, '#2a2f37'); gr.addColorStop(1, '#0d1014');
-      g.fillStyle = gr; g.fillRect(x + 22, 134, bw - 44, h - 134);
-    }
-  });
-  const grey = new THREE.MeshLambertMaterial({ color: col(0xc9ced4) });
-  const gm = new THREE.Mesh(new THREE.BoxGeometry(len, hgt, dep), [grey, grey, new THREE.MeshLambertMaterial({ color: col(0x6f7378) }), grey, new THREE.MeshLambertMaterial({ map: gTex }), grey]);
-  gm.position.y = hgt / 2; gm.castShadow = true; gm.receiveShadow = true; grp.add(gm);
-  scene.add(grp);
-  // a crew of four at every box
-  for (let k = 0; k < 6; k++) {
-    const list = [], geo = crewGeo(parseInt(BUSES[k].hud.slice(1), 16));
-    for (let j = 0; j < 4; j++) {
-      const m = new THREE.Mesh(geo, VCMAT()); m.castShadow = true;
-      const q = TRACK.pointAt(PIT.boxS(k) + (j - 1.5) * 1.9, PIT.crewLat, {});
-      m.position.set(q.x, 0, q.z); m.rotation.y = facingTrack(q, -1);
-      scene.add(m); list.push({ m, home: m.position.clone(), yaw: m.rotation.y });
-    }
-    PITV.crews.push(list);
-  }
-  for (let t = 0; t <= 1.0001; t += 0.1) { const q = TRACK.pointAt(PIT.s0 + (PIT.s1 - PIT.s0) * t, -(WALL + 16), {}); reserve(q.x, q.z, 17); }
-}
-// crews run to the wheels while their bus is stopped for new tyres
-const CREW_V = new THREE.Vector3();
-function updatePitCrews(dt, time) {
-  for (let k = 0; k < PITV.crews.length; k++) {
-    const b = RACE.buses.find((x) => x.def.num === k + 1);
-    const busy = !!b && b.pitT > 0;
-    PITV.crews[k].forEach((c, j) => {
-      if (busy) {
-        const w = b.m.wheels[j], sy = Math.sin(b.yaw), cy = Math.cos(b.yaw), out = w.pivot.position.x > 0 ? 0.9 : -0.9;
-        const lx = w.pivot.position.x + out, lz = w.pivot.position.z;
-        CREW_V.set(b.x + lx * cy + lz * sy, 0, b.z - lx * sy + lz * cy);
-        c.m.rotation.y = b.yaw + (out > 0 ? -Math.PI / 2 : Math.PI / 2);
-        c.m.scale.set(1, 0.72 + Math.sin(time * 18 + j) * 0.04, 1);
-      } else { CREW_V.copy(c.home); c.m.rotation.y = c.yaw; c.m.scale.set(1, 1, 1); }
-      c.m.position.lerp(CREW_V, Math.min(1, dt * (busy ? 9 : 3)));
-    });
-  }
 }
 
 // =====================================================================
@@ -1458,12 +1342,11 @@ class Bus {
     this.best = Infinity; this.students = 0; this.cp = -1; this.gap = 0; this.wrongT = 0; this.impactCD = 0;
     this.ai.stuck = 0; this.ai.rev = 0; this.ai.lane = this.q.d; this.ai.biasT = 0;
     resetAbil(this);
-    resetTyres(this);
     this.updateProgress();
   }
   get speed() { return Math.hypot(this.vx, this.vz); }
   step(dt, c) {
-    if (this.pitT > 0 || this.holdT > 0) { this.vx = 0; this.vz = 0; this.fwd = 0; this.yawRate = 0; this.slip = 0; this.boosting = false; this.braking = true; return; }
+    if (this.holdT > 0) { this.vx = 0; this.vz = 0; this.fwd = 0; this.yawRate = 0; this.slip = 0; this.boosting = false; this.braking = true; return; }
     if (this.stunT > 0) c = stunCtrl(this);
     const st = this.st, sy = Math.sin(this.yaw), cy = Math.cos(this.yaw);
     const vf = this.vx * sy + this.vz * cy;
@@ -1472,9 +1355,6 @@ class Bus {
     const offPen = this.off && !this.dirtProof;
     let vmax = Math.max(5, st.vmax * this.vmul * this.abilMul * (offPen ? 0.62 : 1)), acc = st.accel * Math.max(1, this.abilMul);
     this.boosting = this.tempBonus >= 0.06;
-    const tg = tireGrip(this);
-    if (this.blown) vmax *= 0.55;
-    if (this.pitLim) vmax = Math.min(vmax, PIT.v);
     let a = 0;
     if (c.thr > 0) {
       if (vf > -0.5) { const x = Math.max(0, vf) / vmax; a += x < 1 ? acc * c.thr * (1 - x * x) : -(x - 1) * vmax * 0.8; }
@@ -1492,7 +1372,7 @@ class Bus {
     const nvf = vf + a * dt;
     if (!(c.thr > 0) && !(c.brk > 0) && Math.sign(nvf) !== Math.sign(vf)) { this.vx -= sy * vf; this.vz -= cy * vf; }
     else { this.vx += sy * a * dt; this.vz += cy * a * dt; }
-    // tyre grip: velocity direction relaxes toward the heading (drift when grip is low)
+    // grip: velocity direction relaxes toward the heading (drift when grip is low)
     const spd = Math.hypot(this.vx, this.vz);
     if (spd > 0.05) {
       const fdot = this.vx * sy + this.vz * cy;
@@ -1500,7 +1380,7 @@ class Bus {
       const beta = wrapA(Math.atan2(this.vx, this.vz) - tgt);
       // rain: less grip for everyone but Sarp, and the tail steps out whenever the bus turns
       const wet = RAIN.t > 0 && !this.aura;
-      const grip = st.grip * (c.hb ? 0.16 : 1) * (this.off ? 0.7 : 1) * tg * (wet ? (1 - RAIN.loss) * (Math.abs(c.steer) > 0.25 ? 0.55 : 1) : 1);
+      const grip = st.grip * (c.hb ? 0.16 : 1) * (this.off ? 0.7 : 1) * (wet ? (1 - RAIN.loss) * (Math.abs(c.steer) > 0.25 ? 0.55 : 1) : 1);
       const nb = beta * Math.exp(-grip * dt);
       const ns = spd * (1 - Math.min(0.5, Math.abs(beta) * (c.hb ? 0.5 : 0.3) * dt));
       const na = tgt + nb;
@@ -1510,10 +1390,9 @@ class Bus {
     // steering
     const av = Math.abs(vf);
     const sf = Math.min(1, av / 5) * (1 - 0.5 * Math.min(1, av / st.vmax));
-    let yr = clamp(c.steer + (this.blown ? this.pull : 0), -1, 1) * st.steer * sf * (c.hb ? 1.35 : 1) * (0.72 + 0.28 * tg) * (RAIN.t > 0 && !this.aura ? 1.12 : 1);
+    let yr = clamp(c.steer, -1, 1) * st.steer * sf * (c.hb ? 1.35 : 1) * (RAIN.t > 0 && !this.aura ? 1.12 : 1);
     if (vf < 0) yr = -yr;
     this.yawRate = yr;
-    this.tire = Math.max(0, this.tire - dt * TYRE_WEAR * (0.003 * av + 0.016 * Math.abs(yr * vf) + 0.03 * Math.abs(this.slip) * av + 0.008 * (c.brk > 0 ? c.brk : 0) * Math.max(0, vf) + (this.off ? 0.02 * av : 0) + (this.scraping ? 1.5 : 0)));
     this.yaw = wrapA(this.yaw - yr * dt);
     if (this.throwT > 0) throwStep(this, dt);
     this.x += this.vx * dt; this.z += this.vz * dt;
@@ -1526,7 +1405,7 @@ class Bus {
     const ext = Math.abs(Math.sin(rel)) * this.halfL + Math.abs(Math.cos(rel)) * this.halfW;
     latLimits(q.s, q.d, LIM);
     const hiL = LIM.hi - 0.05 - ext, loL = LIM.lo + 0.05 + ext;
-    this.off = Math.abs(q.d) > HW + KERB * 0.8 && !inPitZone(q.s, q.d);
+    this.off = Math.abs(q.d) > HW + KERB * 0.8;
     this.scraping = false;
     const sd = q.d > hiL ? 1 : (q.d < loL ? -1 : 0);
     if (sd) {
@@ -1567,10 +1446,9 @@ class Bus {
     const av = this.fwd;
     this.steerVis = lerp(this.steerVis, this.ctrl.steer, Math.min(1, dt * 10));
     const tRoll = -(clamp(this.yawRate * av * 0.0028, -0.07, 0.07) + clamp(this.slip * 0.05, -0.04, 0.04));
-    const bf = this.blownFx;
-    this.roll = lerp(this.roll, tRoll + (this.stunT > 0 || this.holdT > 0 ? Math.sin(RACE.t * (this.holdT > 0 ? 30 : 13)) * 0.07 : 0) + (bf ? bf.roll : 0), Math.min(1, dt * 6));
+    this.roll = lerp(this.roll, tRoll + (this.stunT > 0 || (this.holdT > 0 && !(this.penStopT > 0)) ? Math.sin(RACE.t * (this.holdT > 0 ? 30 : 13)) * 0.07 : 0), Math.min(1, dt * 6));
     const tPitch = this.braking ? 0.025 : (this.ctrl.thr > 0 && av < this.st.vmax * 0.7 ? -0.018 : 0);
-    this.pitch = lerp(this.pitch, tPitch + (bf ? bf.pitch : 0), Math.min(1, dt * 5));
+    this.pitch = lerp(this.pitch, tPitch, Math.min(1, dt * 5));
     m.body.rotation.set(this.pitch, 0, this.roll);
     for (const w of m.wheels) { w.spin.rotation.x += (av / P.wheelR) * dt; if (w.front) w.pivot.rotation.y = -this.steerVis * 0.42; }
     m.tailMat.color.copy(this.braking ? TAIL_ON : TAIL_OFF);
@@ -1578,7 +1456,7 @@ class Bus {
     for (const f of m.flames) { f.visible = fl; if (fl) f.scale.set(1, 1, 0.7 + Math.random() * 0.6); }
   }
 }
-const TAIL_ON = new THREE.Color(), TAIL_OFF = new THREE.Color();
+const TAIL_ON = new THREE.Color(), TAIL_OFF = new THREE.Color(), LIM = { lo: 0, hi: 0 };
 // ghost a bus that sits between the camera and the player (or on top of the camera)
 function setBusAlpha(b, a) {
   const m = b.m;
@@ -1599,7 +1477,7 @@ function segSeg(p1x, p1z, q1x, q1z, p2x, p2z, q2x, q2z) {
   CP.ax = p1x + d1x * s; CP.az = p1z + d1z * s; CP.bx = p2x + d2x * t; CP.bz = p2z + d2z * t;
 }
 function collideBuses(A, B) {
-  if (A.remote && B.remote) return;
+  if ((A.remote && B.remote) || A.ghostT > 0 || B.ghostT > 0) return;
   const dx0 = A.x - B.x, dz0 = A.z - B.z, reach = A.halfL + B.halfL + 0.5;
   if (dx0 * dx0 + dz0 * dz0 > reach * reach) return;
   const ha = A.halfL - A.halfW, hb = B.halfL - B.halfW;
@@ -1662,9 +1540,7 @@ function aiDrive(b, dt, all) {
     }
   }
   lane = clamp(aiLaneWish(b, s, lane), -HW + 2.3, HW - 2.3);
-  const pl = aiPitPlan(b, s);
-  if (pl) lane = pl.lane;
-  ai.lane = lerp(ai.lane, lane, Math.min(1, dt * (pl ? 2.4 : 1.6)));
+  ai.lane = lerp(ai.lane, lane, Math.min(1, dt * 1.6));
   // steer toward a look-ahead point
   const look = 9 + v * 0.42;
   T.pointAt(s + look, ai.lane, TMP);
@@ -1672,7 +1548,7 @@ function aiDrive(b, dt, all) {
   const ang = Math.atan2(dx * -cy + dz * sy, dx * sy + dz * cy);
   let steer = clamp(ang * 2.5, -1, 1);
   // speed target from the curvature ahead
-  const skill = ai.skill * (0.7 + 0.3 * tireGrip(b));
+  const skill = ai.skill;
   let target = st.vmax * 1.3;
   for (let k = 4; k <= 150; k += 5) {
     const kk = Math.abs(T.curvAt(s + k));
@@ -1681,13 +1557,12 @@ function aiDrive(b, dt, all) {
     target = Math.min(target, Math.sqrt(vA * vA + 2 * 17 * k));
   }
   target = Math.min(target, cornerSpeed(st, T.curvAt(s)) * skill + 1.5);
-  if (pl) target = Math.min(target, pl.cap);
   let thr = v < target - 0.5 ? 1 : (v < target + 1.5 ? 0.35 : 0);
   let brk = v > target + 2 ? clamp((v - target) / 6, 0.25, 1) : 0;
   // recovery if stuck against a wall or pointing the wrong way
   const along = b.vx * b.q.tx + b.vz * b.q.tz;
   const heading = wrapA(b.yaw - Math.atan2(b.q.tx, b.q.tz));
-  if (RACE.t > 4 && b.stunT <= 0 && b.holdT <= 0 && !ai.pit && b.pitT <= 0 && (b.speed < 2.5 || Math.abs(heading) > 2.2)) ai.stuck += dt; else ai.stuck = Math.max(0, ai.stuck - dt * 2);
+  if (RACE.t > 4 && b.stunT <= 0 && b.holdT <= 0 && (b.speed < 2.5 || Math.abs(heading) > 2.2)) ai.stuck += dt; else ai.stuck = Math.max(0, ai.stuck - dt * 2);
   if (ai.stuck > 1.2 && ai.rev <= 0) { ai.rev = 1.1; }
   if (ai.rev > 0) { ai.rev -= dt; thr = 0; brk = 1; steer = -Math.sign(heading || 1); }
   if (ai.stuck > 4.5) { respawnBus(b); ai.stuck = 0; ai.rev = 0; }
@@ -1959,87 +1834,6 @@ function busDist(o, x, z) {
 }
 
 // =====================================================================
-//  TYRES: wear, blowouts, pit stops (players and AI follow the same rules)
-// =====================================================================
-const TYRE_WEAR = 1.0;           // scales all wear; a set lasts roughly 4-5 laps of racing
-const LIM = { lo: 0, hi: 0 }, TMPW = { x: 0, z: 0 };
-function tireGrip(b) { return b.blown ? 0.4 : 0.62 + 0.38 * Math.pow(Math.max(0, b.tire) / 100, 0.6); }
-function tyreScale(b, k) { b.m.wheels.forEach((w, i) => { const t = w.spin.children[0], r = b.m.P.wheelR * (i === k ? 0.78 : 1); t.scale.set(0.27, r, r); }); }
-function resetTyres(b) {
-  b.tire = 100; b.blown = false; b.blownW = -1; b.pull = 0; b.blownFx = null;
-  b.pitT = 0; b.pitMax = PIT.time; b.pitDone = false; b.pitLim = false; b.pitStops = 0; b.warned = 0;
-  if (b.m) tyreScale(b, -1);
-}
-function wheelWorld(b, wi, out) {
-  const w = b.m.wheels[wi], sy = Math.sin(b.yaw), cy = Math.cos(b.yaw), lx = w.pivot.position.x, lz = w.pivot.position.z;
-  out.x = b.x + lx * cy + lz * sy; out.z = b.z - lx * sy + lz * cy; return out;
-}
-function blowout(b) {
-  if (b.blown) return;
-  const wi = Math.floor(Math.random() * 4), w = b.m.wheels[wi], left = w.pivot.position.x > 0;
-  b.blown = true; b.tire = 0; b.blownW = wi; b.pull = left ? -0.22 : 0.22;
-  b.blownFx = { roll: left ? -0.045 : 0.045, pitch: w.front ? 0.03 : -0.03 };
-  tyreScale(b, wi);
-  SFX.bang(camVol(b));
-  wheelWorld(b, wi, TMPW);
-  for (let i = 0; i < 7; i++) puff(TMPW.x + rr(-0.6, 0.6), 0.5, TMPW.z + rr(-0.6, 0.6), DUST, 0.6, 2.6, 0.9, 1.2);
-  if (b.isPlayer) { showMsg('Blowout!', 'Box, box! Pit lane on the left after the car park', 'warn', 2.6); camShake(1); }
-}
-function tyreStep(b, dt) {
-  // worn-out tyres can burst; at 0 % they always do
-  if (!b.blown && b.pitT <= 0 && b.tire < 12 && RACE.state === 'race' && b.speed > 5) {
-    if (b.tire <= 0 || Math.random() < (12 - b.tire) / 12 * 0.3 * dt) blowout(b);
-  }
-  const s = b.q.s, d = b.q.d, inLane = s > PIT.s0 && s < PIT.s1 && d < -(WALL - 0.5);
-  b.pitLim = inLane && s > PIT.s0 + 6 && s < PIT.s1 - 6;
-  if (b.pitT > 0) {
-    b.pitT -= dt;
-    if (b.pitT <= 0) {
-      b.pitT = 0; b.tire = 100; b.blown = false; b.blownW = -1; b.pull = 0; b.blownFx = null; b.warned = 0; b.pitStops++;
-      tyreScale(b, -1);
-      if (b.isPlayer) { showMsg('Fresh tyres', 'Go go go!', 'go', 1.4); SFX.go(); }
-    }
-    return;
-  }
-  const box = PIT.boxS(b.def.num - 1);
-  // stop in (or right beside) your box; a bump in the pit lane shouldn't cost the whole stop
-  if (inLane && !b.pitDone && b.speed < 2.2 && Math.abs(s - box) < 8 && d < -(WALL + 3)) {
-    // Ali's bite makes the next pit stop longer
-    b.pitT = PIT.time + b.pitPen; b.pitMax = b.pitT; b.penPaid += b.pitPen; b.pitDone = true;
-    if (b.isPlayer) { SFX.wrench(); if (b.pitPen) toast('Pit penalty: +' + b.pitPen + ' s'); }
-    b.pitPen = 0;
-  }
-  if (!inLane) b.pitDone = false;
-  if (b.isPlayer && !b.finished && RACE.state === 'race') {
-    if (b.tire < 35 && b.warned < 1) { b.warned = 1; toast('Tyres worn: pit soon (left side, after the car park)'); }
-    if (b.tire < 15 && b.warned < 2) { b.warned = 2; showMsg('Tyres critical', 'Box this lap!', 'warn', 2.2); }
-  }
-}
-// AI pit strategy: returns a lane and speed cap while the bus is heading for its box, otherwise null
-function aiPitPlan(b, s) {
-  const ai = b.ai, rel = s - PIT.s0, span = PIT.s1 - PIT.s0;
-  if (!ai.pit) {
-    const lastLap = b.lap >= RACE.laps;
-    const need = b.blown || (!lastLap && b.tire < ai.pitAt);
-    if (RACE.state === 'race' && !b.finished && need && rel < -60 && rel > -470) ai.pit = true;
-    else return null;
-  }
-  if (rel > span + 5 || rel < -480 || b.finished) { ai.pit = false; return null; }
-  if (rel < -90) return { lane: -6, cap: 99 };
-  if (rel < -14) return { lane: -8.8, cap: Math.sqrt(24 * 24 + 2 * 12 * Math.max(0, -rel - 14)) };
-  if (rel < span - PIT.gap) {
-    const box = PIT.boxS(b.def.num - 1);
-    if (!b.pitDone) {
-      if (s > box + 6) return { lane: PIT.fast, cap: PIT.v - 1 };   // missed the box: drive on and try again next lap
-      if (s > box - 16) return { lane: PIT.boxLat, cap: Math.min(PIT.v - 1, Math.sqrt(2 * 7 * Math.max(0, box - s - 0.8))) };
-      return { lane: PIT.fast, cap: PIT.v - 1 };
-    }
-    return { lane: PIT.fast, cap: s < box + 8 ? 9 : PIT.v - 1 };
-  }
-  return { lane: -7, cap: PIT.v - 1 + (rel - (span - PIT.gap)) * 0.6 };
-}
-
-// =====================================================================
 //  DRIVER ABILITIES: students, two passives and one ability per driver.
 //  Every number comes from RULES and CHARACTERS in characters.js.
 // =====================================================================
@@ -2068,7 +1862,7 @@ function resetAbil(b) {
   b.fieldInv = false; b.fieldT = 0;
   b.contact = new Map();
   b.aura = id === 'sarp'; b.dirtProof = id === 'ataberk';
-  b.pitPen = 0; b.penPaid = 0; b.finishPen = 0; b.abUses = 0;
+  b.stopPen = 0; b.penStopT = 0; b.ghostT = 0; b.penPaid = 0; b.finishPen = 0; b.abUses = 0;
   b.ab = { key: '', t: 0, max: 0, hits: new Set() };
   b.pv = {
     foodT: 0, foodNext: CH.egemen.passive1.every * rr(0.4, 0.7),
@@ -2097,10 +1891,10 @@ function stunBus(t, dur, src) {
   if (!t || t.finished) return false;
   if (t.remote) {   // online: the device that drives it decides (guard, aura), we guess for the pop-up
     if (NET.racing) netEvent(t, 'stun', { dur, src: busIdx(src) });
-    return !(t.aura || t.stunGuardT > 0 || t.pitT > 0 || t.holdT > 0);
+    return !(t.aura || t.stunGuardT > 0 || t.holdT > 0);
   }
   if (src && src !== t) {
-    if (t.aura || t.stunGuardT > 0 || t.pitT > 0 || t.holdT > 0) return false;
+    if (t.aura || t.stunGuardT > 0 || t.holdT > 0) return false;
     t.rivalStunT = Math.max(t.rivalStunT, dur);
     if (t.ab.key === 'song') cutSong(t, '', true);
   } else t.selfStunT = Math.max(t.selfStunT, dur);
@@ -2137,7 +1931,6 @@ function abilityBlock(b) {
   if (b.finished) return 'Finished';
   if (b.holdT > 0 || b.throwT > 0) return 'Busy';
   if (b.stunT > 0) return 'Stunned';
-  if (b.pitT > 0 || b.pitLim) return 'Not in the pit lane';
   return ABIL[id].block(b);
 }
 function useAbility(b) {
@@ -2275,12 +2068,11 @@ function lepTarget(b) {
   const a = CH.ada.ability;
   let best = null, bd = Infinity;
   for (const o of RACE.buses) {
-    if (o === b || o.aura || o.finished || o.pitT > 0 || o.pitLim || o.holdT > 0 || o.throwT > 0) continue;
+    if (o === b || o.aura || o.finished || o.holdT > 0 || o.throwT > 0) continue;
     const ds = relS(o, b);
     if (ds <= 0 || ds - b.halfL - o.halfL > a.range * BUSLEN) continue;
-    if (Math.abs(o.q.d - b.q.d) > 9 || inPitZone(o.q.s, o.q.d)) continue;
-    let side = o.q.d >= 0 ? 1 : -1;
-    if (side < 0 && o.q.s > PIT.s0 - 12 && o.q.s < PIT.s1 + 12) side = 1;   // the pit entry is not a wall
+    if (Math.abs(o.q.d - b.q.d) > 9) continue;
+    const side = o.q.d >= 0 ? 1 : -1;
     if (ds < bd) { bd = ds; best = { bus: o, side }; }
   }
   return best;
@@ -2488,13 +2280,12 @@ function quizStep(b, dt, live) {
   if (!q) {
     if (b.lap < 1) return;
     pv.quizT += dt;
-    if (pv.quizT >= pv.quizNext && !b.pitLim && !(b.pitT > 0) && b.q.d > -(WALL - 1)) { pv.quizT = 0; pv.quizNext = p.every * rr(0.9, 1.1); newQuiz(b); }
+    if (pv.quizT >= pv.quizNext) { pv.quizT = 0; pv.quizNext = p.every * rr(0.9, 1.1); newQuiz(b); }
     return;
   }
   q.t += dt;
   if (q.phase === 'ask' && q.t >= p.gateDelay) placeGates(b, q);
   if (q.phase !== 'gates') return;
-  if (b.pitLim || b.q.d < -(WALL + 1)) { endQuiz(b); return; }
   const rel = relS({ q: { s: b.q.s } }, { q: { s: q.s } });
   if (q.prev < 0 && rel >= 0 && rel < 40) { answerGate(b, q, b.q.d < 0 ? -1 : 1); return; }
   q.prev = rel;
@@ -2637,16 +2428,34 @@ function checkTick(dt) {
   if (!c.done && c.t >= c.max) resolveCheck(false);
   if (c.done) { c.hideT -= dt; if (c.hideT <= 0) { RACE.check = null; closeCheckUI(); } }
 }
-function canBite(o) { return !o.aura && !o.finished && !(o.pitT > 0) && !o.pitLim && !(o.holdT > 0) && !(o.stunGuardT > 0); }
+function canBite(o) { return !o.aura && !o.finished && !(o.holdT > 0) && !(o.stunGuardT > 0); }
 function bite(b, o) {
   const a = CH.ali.ability.full;
   startAb(b, 'bite', a.biteTime).victim = o;
   b.holdT = a.biteTime; b.vx = b.vz = 0;
-  if (o.remote) netEvent(o, 'bite', { src: busIdx(b), dur: a.biteTime, pen: a.pitPenalty });
-  else { if (o.ab.key === 'song') cutSong(o, '', true); o.holdT = a.biteTime; o.vx = o.vz = 0; o.pitPen = Math.max(o.pitPen, a.pitPenalty); }
+  if (o.remote) netEvent(o, 'bite', { src: busIdx(b), dur: a.biteTime, pen: a.stopPenalty });
+  else { if (o.ab.key === 'song') cutSong(o, '', true); o.holdT = a.biteTime; o.vx = o.vz = 0; o.stopPen = Math.max(o.stopPen, a.stopPenalty); }
   chompFX(b, o); SFX.chomp(Math.max(camVol(b), camVol(o)));
-  if (o.isPlayer) showMsg('CHOMP!', 'Ali bit you: +' + a.pitPenalty + ' s at your next pit stop', 'warn', 2.2);
-  if (b.isPlayer) toast('CHOMP! ' + o.driver.nick + ' waits +' + a.pitPenalty + ' s at the next pit stop');
+  if (o.isPlayer) showMsg('CHOMP!', 'Ali bit you: you stop for ' + a.stopPenalty + ' s at the start/finish line', 'warn', 2.2);
+  if (b.isPlayer) toast('CHOMP! ' + o.driver.nick + ' must stop for ' + a.stopPenalty + ' s at the line');
+}
+// Ali's bite penalty: at the start/finish line the bitten bus stops and turns into a ghost nobody can hit
+function servePenalty(b) {
+  const t = b.stopPen; if (!(t > 0)) return;
+  if (b.ab.key === 'song') cutSong(b, '', true);
+  b.stopPen = 0; b.penPaid += t;
+  b.penStopT = t; b.holdT = Math.max(b.holdT, t); b.ghostT = t + 1.2; b.vx = b.vz = 0;
+  if (b.isPlayer) showMsg('Penalty stop', 'Ali\'s bite: ' + t + ' s at the line', 'warn', Math.min(2.2, t));
+  else popText(b, 'PENALTY STOP', '#ff8c7a');
+}
+// the ghost ends once no other bus overlaps it, so it never pops out of another bus
+function ghostStep(b, dt) {
+  if (b.penStopT > 0) b.penStopT = Math.max(0, b.penStopT - dt);
+  if (!(b.ghostT > 0)) return;
+  b.ghostT -= dt;
+  if (b.ghostT > 0) return;
+  for (const o of RACE.buses) if (o !== b && Math.hypot(o.x - b.x, o.z - b.z) < b.halfL + o.halfL + 0.5) { b.ghostT = 0.1; return; }
+  b.ghostT = 0;
 }
 function cutSong(b, why, noStun) {
   if (b.ab.key !== 'song') return;
@@ -2688,6 +2497,7 @@ function abilStep(dt) {
     if (b.selfStunT > 0) b.selfStunT = Math.max(0, b.selfStunT - dt);
     b.stunT = Math.max(b.rivalStunT, b.selfStunT);
     if (b.holdT > 0) b.holdT = Math.max(0, b.holdT - dt);
+    ghostStep(b, dt);
     for (let i = b.effects.length - 1; i >= 0; i--) { const e = b.effects[i]; e.t -= dt; if (e.t <= 0) b.effects.splice(i, 1); }
     if (b.ab.key) {
       const step = ABSTEP[b.ab.key]; if (step) step(b, dt);
@@ -2738,7 +2548,7 @@ const AIWANT = {
 };
 function aiAbility(b, dt) {
   const ai = b.ai, id = drvId(b);
-  if (RACE.state !== 'race' || b.finished || ai.pit || !id) return;
+  if (RACE.state !== 'race' || b.finished || !id) return;
   if (id === 'doruk' && b.pv.wrong >= CH.doruk.passive2.unlockWrong) ai.rageWait += dt;
   if (id === 'ela' && b.bank >= CH.ela.ability.cost) ai.songWait += dt;
   if (id === 'ali') {
@@ -2801,7 +2611,8 @@ function abilityInfo(b) {
 function effectList(b) {
   const L = [], id = drvId(b), pv = b.pv;
   const sgn = (x) => (x >= 0 ? '+' : '−') + pct(x);
-  if (b.holdT > 0) L.push(['stun', id === 'ali' && b.ab.key === 'bite' ? 'Biting' : 'Bitten!', b.holdT]);
+  if (b.penStopT > 0) L.push(['stun', 'Penalty stop', b.penStopT]);
+  else if (b.holdT > 0) L.push(['stun', id === 'ali' && b.ab.key === 'bite' ? 'Biting' : 'Bitten!', b.holdT]);
   else if (b.stunT > 0) L.push(['stun', 'Stunned', b.stunT]);
   if (b.fieldInv) L.push(['bad', 'Reversed controls', null]);
   if (RAIN.t > 0 && !b.aura) L.push(['bad', 'Rain −' + pct(RAIN.loss) + ' grip', RAIN.t]);
@@ -2812,7 +2623,7 @@ function effectList(b) {
   if (id === 'ada' && pv.trail) L.push(['good', '+' + pct(CH.ada.passive2.bonus) + ' Trail', null]);
   if (b.permBonus > 0) L.push(['good', '+' + pct(b.permBonus) + (id === 'sarp' ? ' Permanent' : ' Gym'), null]);
   if (b.stunGuardT > 0) L.push(['info', 'Stun guard', b.stunGuardT]);
-  if (b.pitPen > 0) L.push(['bad', 'Pit penalty +' + b.pitPen + ' s', null]);
+  if (b.stopPen > 0) L.push(['bad', 'Stop ' + b.stopPen + ' s at the line', null]);
   if (id === 'doruk' && pv.wrong > 0) L.push(['info', 'Wrong in a row ' + pv.wrong + '/' + CH.doruk.passive2.unlockWrong, null]);
   return L;
 }
@@ -3309,11 +3120,26 @@ function busFX(b, dt, time) {
   if (bow) { fx.coinT = (fx.coinT || 0) - dt; if (fx.coinT <= 0) { fx.coinT = 0.06; emitCoin(b); if (b.isPlayer && Math.random() < 0.3) SFX.coin(); } }
   // Ali's hungry mouth
   const hungry = key === 'seek' || key === 'bite';
-  if (hungry && !fx.mouth) {
-    fx.mouth = new THREE.Sprite(new THREE.SpriteMaterial({ map: AFX.mouthTex, transparent: true, depthWrite: false }));
-    fx.mouth.position.set(0, b.m.P.H + 1.3, b.m.P.L / 2 - 0.6); fx.mouth.renderOrder = 6; b.m.grp.add(fx.mouth);
-  }
+  if (hungry && !fx.mouth) fx.mouth = makeMouth(b);
   if (fx.mouth) { fx.mouth.visible = hungry; if (hungry) { const c = key === 'bite' ? Math.abs(Math.sin(time * 18)) : 0.6 + Math.sin(time * 8) * 0.25; fx.mouth.scale.set(3.2, 2 * (0.35 + 0.65 * c), 1); } }
+}
+function makeMouth(b) {
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: AFX.mouthTex, transparent: true, depthWrite: false }));
+  s.position.set(0, b.m.P.H + 1.3, b.m.P.L / 2 - 0.6); s.renderOrder = 6; s.visible = false; b.m.grp.add(s);
+  return s;
+}
+// everything the abilities show is built before the first race, so no power stalls the game the first time it is used
+function prebuildFX() {
+  for (const b of RACE.buses) {
+    const fx = b.fx || (b.fx = {});
+    if (!fx.tf) fx.tf = makeTransform(b);
+    if (!fx.rainbow) fx.rainbow = makeRainbow();
+    if (!fx.mouth) fx.mouth = makeMouth(b);
+  }
+  for (const kind of Object.keys(AFX.items)) {
+    const ms = [takeItemMesh(kind), takeItemMesh(kind)];
+    ms.forEach((m) => { m.userData.used = false; m.visible = false; });
+  }
 }
 // stars over stunned buses, and name tags over rivals
 function updateStunStars(time) {
@@ -3467,9 +3293,9 @@ function tryPlayerAbility() {
 //  drives that bus, which applies them (Sarp's aura and the stun guard are
 //  checked where they belong).
 // =====================================================================
-const NET_VERSION = 'sbr-online-2';
+const NET_VERSION = 'sbr-online-3';
 const NET = { on: false, host: false, racing: false, peer: null, conn: null, links: new Map(), code: '', my: '', players: [], laps: 6, diff: 1,
-  sendT: 0, relayT: 0, beatT: 0, lastHost: 0, dropHits: new Map(), joining: false, attempt: 0, route: '', direct: false };
+  sendT: 0, relayT: 0, beatT: 0, lastHost: 0, dropHits: new Map(), joining: false, attempt: 0, route: '', direct: false, seq: 0, seen: 0 };
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const roomPeerId = (code) => 'sbr-anka-gp-' + code.toLowerCase();
 const busIdx = (b) => (b ? b.def.num - 1 : -1);
@@ -3582,7 +3408,7 @@ function onHostRelayMsg(m, conn) {
   }
   link.seen = performance.now();
   if (m.k === 'bye') { if (NET.links.get(pid) === link) hostDrop(pid); return; }
-  if (m.k === 'ping') return;
+  if (m.k === 'ping') { if (NET.links.get(pid) === link && isFinite(m.t)) link.send({ k: 'pong', t: m.t }); return; }
   hostData(pid, link, m);
 }
 function onHostRelayLost() { renderLobby(); }
@@ -3602,7 +3428,8 @@ function netJoin(raw) {
   peer.on('open', (id) => {
     if (NET.peer !== peer) return;
     NET.my = id;
-    const conn = peer.connect(roomPeerId(code), { reliable: true, serialization: 'json' });
+    // unordered: a lost packet is resent without holding back the newer ones behind it
+    const conn = peer.connect(roomPeerId(code), { reliable: false, serialization: 'json' });
     conn.on('open', () => {
       if (relayTried || NET.attempt !== attempt) { try { conn.close(); } catch (e) { /* not needed any more */ } return; }
       clearTimeout(slow);
@@ -3671,7 +3498,7 @@ function netClose() {
   if (conn && !conn.relay) try { conn.close(); } catch (e) { /* already closed */ }
   if (peer) try { peer.destroy(); } catch (e) { /* already gone */ }
   relayCloseAll();
-  NET.on = false; NET.host = false; NET.racing = false; NET.players = []; NET.code = ''; NET.my = ''; NET.joining = false; NET.route = ''; NET.direct = false; NET.dropHits.clear();
+  NET.on = false; NET.host = false; NET.racing = false; NET.live = false; NET.players = []; NET.code = ''; NET.my = ''; NET.joining = false; NET.route = ''; NET.direct = false; NET.seen = 0; NET.rtt = 0; NET.rtts = []; NET.dropHits.clear();
   RACE.buses.forEach((b) => { b.remote = false; b.owner = null; b.human = false; b.net = null; });
 }
 function netLost(msg) {
@@ -3734,10 +3561,10 @@ function hostDrop(pid) {
 function botTakeOver(b) {
   const D = DIFF[RACE.diff];
   TRACK.project(b.x, b.z, b.hint, b.q); b.hint = b.q.idx; b.prevS = b.q.s;
-  b.ai.base = 1; b.vmul = D.vmul; b.ai.skill = D.skill; b.ai.greed = 0.8; b.ai.stopDec = {}; b.ai.pitAt = 40; b.ai.pit = false; b.ai.lane = b.q.d; b.ai.abDelay = 2;
-  b.net = null;
+  b.ai.base = 1; b.vmul = D.vmul; b.ai.skill = D.skill; b.ai.greed = 0.8; b.ai.stopDec = {}; b.ai.lane = b.q.d; b.ai.abDelay = 2;
+  b.net = null; b.netOff = null;
 }
-function lobbyMsg() { return { k: 'lobby', players: NET.players, laps: NET.laps, diff: NET.diff, racing: NET.racing }; }
+function lobbyMsg() { return { k: 'lobby', n: ++NET.seq, players: NET.players, laps: NET.laps, diff: NET.diff, racing: NET.racing }; }
 // everybody except `except`: direct links one by one, relay players with one message on the room channel
 function sendAll(m, except) {
   let relay = false;
@@ -3757,7 +3584,7 @@ function hostStart() {
     const h = NET.players.find((p) => p.bus === bi);
     return { bus: bi, drv: h ? h.drv : free.pop(), owner: h ? h.pid : NET.my, human: !!h };
   });
-  const m = { k: 'start', laps: NET.laps, diff: NET.diff, entries, order: shuffle(entries.map((e, i) => i)), goAt: +(4.4 + rr(0.5, 1.3)).toFixed(2) };
+  const m = { k: 'start', n: ++NET.seq, laps: NET.laps, diff: NET.diff, entries, order: shuffle(entries.map((e, i) => i)), goAt: +(4.4 + rr(0.5, 1.3)).toFixed(2) };
   NET.racing = true;
   netSend(m); netStartRace(m);
 }
@@ -3765,8 +3592,11 @@ function hostStart() {
 // ---------- a player ----------
 function clientData(m) {
   if (!m || typeof m !== 'object') return;
+  if (m.k === 'lobby' || m.k === 'start') { const n = fin(m.n, 0); if (n && n < NET.seen) return; NET.seen = Math.max(NET.seen, n); }
   if (m.k === 'lobby') {
     NET.players = Array.isArray(m.players) ? m.players : []; NET.laps = m.laps; NET.diff = m.diff;
+    // a friend who left mid-race: the host's bot drives their bus now
+    if (NET.racing) for (const b of RACE.buses) if (b.remote && b.owner !== roomPeerId(NET.code) && !NET.players.some((p) => p.pid === b.owner)) { b.owner = roomPeerId(NET.code); b.human = false; b.net = null; b.netOff = null; }
     if (NET.racing && !m.racing) backToLobby(); else renderLobby();
     if (RACE.state === 'online') onlineStatus('');
     return;
@@ -3774,6 +3604,7 @@ function clientData(m) {
   if (m.k === 'deny') { onlineStatus(m.why, true); netClose(); renderLobby(); return; }
   if (m.k === 'start') { netStartRace(m); return; }
   if (m.k === 'ST') { if (Array.isArray(m.list)) for (const s of m.list) applyState(s); return; }
+  if (m.k === 'pong') { const r = (performance.now() - fin(m.t, -1e9)) / 1000; if (r > 0 && r < 5) relayRtt(r); return; }
   if (m.k === 'st') { applyState(m.s); return; }
   if (m.k === 'ev') { handleEvent(m); return; }
 }
@@ -3787,11 +3618,11 @@ function sendPick(drv, bus) {
 function netStartRace(m) {
   SFX.init();
   if (!m || !Array.isArray(m.entries) || !m.entries.some((e) => e.human && e.owner === NET.my)) { onlineStatus('The race started before you joined. You are in for the next one.', true); return; }
-  NET.racing = true; RACE.paused = false;
+  NET.racing = true; NET.live = false; RACE.paused = false;
   RACE.laps = [3, 6, 10].includes(m.laps) ? m.laps : 6; RACE.diff = clamp(fin(m.diff, 1), 0, 2) | 0;
   fadeTo(() => {
     const D = DIFF[RACE.diff];
-    RACE.buses.forEach((b) => { b.remote = false; b.owner = null; b.human = false; b.isPlayer = false; b.net = null; });
+    RACE.buses.forEach((b) => { b.remote = false; b.owner = null; b.human = false; b.isPlayer = false; b.net = null; b.netOff = null; });
     m.entries.forEach((e) => {
       const b = RACE.buses[e.bus]; if (!b) return;
       setDriver(b, DRIVERS[clamp(e.drv | 0, 0, DRIVERS.length - 1)]);
@@ -3805,11 +3636,12 @@ function netStartRace(m) {
       b.resetRace();
       b.ai.base = b.human ? 1 : rr(0.975, 1.0);
       b.vmul = b.human ? 1 : D.vmul * b.ai.base;
-      b.ai.skill = D.skill * rr(0.96, 1.02); b.ai.greed = rr(0.6, 0.95); b.ai.stopDec = {}; b.ai.pitAt = rr(38, 46); b.ai.pit = false;
+      b.ai.skill = D.skill * rr(0.96, 1.02); b.ai.greed = rr(0.6, 0.95); b.ai.stopDec = {};
       b.cp = Math.floor(b.progress / 20);
     });
     RACE.netGoAt = fin(m.goAt, 5);
     finishRaceSetup(p, p.driver);
+    NET.live = true;
     const humans = RACE.buses.filter((b) => b.human).length;
     H.introHand.textContent = p.driver.nick + ' drives the No. ' + p.def.num + ' ' + p.def.model + '. ' + humans + (humans === 1 ? ' player' : ' players') + ' online, ' + (6 - humans) + ' bots. Go!';
   });
@@ -3822,7 +3654,7 @@ function hostBackToLobby() {
   backToLobby();
 }
 function backToLobby() {
-  NET.racing = false; RACE.paused = false;
+  NET.racing = false; NET.live = false; RACE.paused = false;
   fadeTo(() => {
     leaveRace();
     RACE.buses.forEach((b) => { b.remote = false; b.owner = null; b.human = false; b.net = null; });
@@ -3833,12 +3665,12 @@ function backToLobby() {
 // ---------- 20 times a second: share where the buses are ----------
 function busState(b) {
   const ab = b.ab || {};
-  const fl = (b.braking ? 1 : 0) | (b.boosting ? 2 : 0) | (b.stunT > 0 ? 4 : 0) | (b.holdT > 0 ? 8 : 0) | (b.stunGuardT > 0 ? 16 : 0) | (b.pitT > 0 ? 32 : 0) |
-    (b.pitLim ? 64 : 0) | (b.blown ? 128 : 0) | (b.effects && b.effects.some((e) => e.key === 'rainbow') ? 256 : 0) | (b.fx && b.fx.plantT > 0 ? 512 : 0) | (b.finished ? 1024 : 0);
+  const fl = (b.braking ? 1 : 0) | (b.boosting ? 2 : 0) | (b.stunT > 0 ? 4 : 0) | (b.holdT > 0 ? 8 : 0) | (b.stunGuardT > 0 ? 16 : 0) | (b.ghostT > 0 ? 32 : 0) |
+    (b.penStopT > 0 ? 64 : 0) | (b.effects && b.effects.some((e) => e.key === 'rainbow') ? 256 : 0) | (b.fx && b.fx.plantT > 0 ? 512 : 0) | (b.finished ? 1024 : 0);
   const s = {
-    i: busIdx(b), x: r2(b.x), z: r2(b.z), y: +b.yaw.toFixed(3), vx: r2(b.vx), vz: r2(b.vz), f: r2(b.fwd), st: r2(b.ctrl.steer), sl: r2(b.slip), fy: r2(b.flyY || 0),
+    i: busIdx(b), h: NET.host ? 1 : 0, t: Math.round(performance.now()), x: r2(b.x), z: r2(b.z), y: +b.yaw.toFixed(3), yr: +(b.yawRate || 0).toFixed(3), vx: r2(b.vx), vz: r2(b.vz), f: r2(b.fwd), st: r2(b.ctrl.steer), sl: r2(b.slip), fy: r2(b.flyY || 0),
     lp: b.lap, pr: r2(b.progress), ft: +(b.finishTime || 0).toFixed(3), fp: b.finishPen || 0, bst: isFinite(b.best) ? +b.best.toFixed(3) : 0,
-    fl, tr: Math.round(b.tire), bw: b.blownW, ps: b.pitStops || 0, stu: b.students || 0,
+    fl, stu: b.students || 0, rt: NET.host ? 0 : Math.round((NET.rtt || 0) * 1000),
     ab: ab.key || '', ai: ab.id || 0, at: r2(ab.t || 0), am: r2(ab.max || 0),
   };
   if (ab.key === 'ball' && ab.ball) s.ball = [r2(ab.ball.x), r2(ab.ball.z), r2(ab.ball.age), r2(ab.ball.life)];
@@ -3849,14 +3681,16 @@ function netTick(dt) {
   if (!NET.on) return;
   const now = performance.now();
   NET.sendT += dt; NET.relayT += dt; NET.beatT += dt;
+  NET.rttT = (NET.rttT || 0) + dt;
+  if (!NET.host && NET.rttT >= 2) { NET.rttT = 0; measureRtt(); }
   if (NET.host) {
-    if (NET.racing && NET.sendT >= 0.05) {   // direct links: 20 times a second, only the buses driven here
+    if (NET.live && NET.sendT >= 0.05) {   // direct links: 20 times a second, only the buses driven here
       NET.sendT = 0;
       const m = { k: 'ST', list: RACE.buses.filter((b) => !b.remote).map(busState) };
       for (const c of NET.links.values()) if (c.open && !c.relay) c.send(m);
     }
     if (hasRelayLinks()) {
-      if (NET.racing && NET.relayT >= 0.1) {   // relay players: 10 times a second, every bus in one message
+      if (NET.live && NET.relayT >= 0.1) {   // relay players: 10 times a second, every bus in one message
         NET.relayT = 0;
         const m = { k: 'ST', list: RACE.buses.map((b) => (b.remote ? b.net : busState(b))).filter(Boolean) }, t = relayBase(NET.code) + 'all';
         for (const rc of RELAY.conns) relayPub(rc, t, m);
@@ -3870,9 +3704,8 @@ function netTick(dt) {
     return;
   }
   const every = NET.route === 'relay' ? 0.1 : 0.05;
-  if (NET.racing && NET.sendT >= every) { NET.sendT = 0; if (RACE.player && NET.conn && NET.conn.open) NET.conn.send({ k: 'st', s: busState(RACE.player) }); }
+  if (NET.live && NET.sendT >= every) { NET.sendT = 0; if (RACE.player && NET.conn && NET.conn.open) NET.conn.send({ k: 'st', s: busState(RACE.player) }); }
   if (NET.route === 'relay') {
-    if (!NET.racing && NET.beatT >= 3) { NET.beatT = 0; if (NET.conn && NET.conn.open) NET.conn.send({ k: 'ping' }); }
     if (now - NET.lastHost > 12000) netLost('Lost the connection to the room.');
   }
 }
@@ -3881,31 +3714,73 @@ function applyState(s) {
   const b = RACE.buses[s.i | 0];
   if (!b || !b.remote || !NET.racing) return;
   if (!isFinite(s.x) || !isFinite(s.z) || !isFinite(s.y)) return;
+  if (!s.h !== (b.owner !== roomPeerId(NET.code))) return;   // made by a device that doesn't drive this bus (a leftover from the last grid)
+  const now = performance.now(), t = fin(s.t, 0);
+  if (b.net && t <= fin(b.net.t, 0)) return;   // older than what we have (packets can arrive out of order), or the same one twice
+  // the other device's clock is unknown: the quickest delivery so far is the reference, so the
+  // prediction below doesn't shake with every late packet (it may creep up 2 ms a second to follow a slower route)
+  const off = now - t;
+  b.netOff = b.net && b.netOff != null ? Math.min(off, b.netOff + (now - b.netAt) * 0.002) : off;
+  b.netBad = off - b.netOff > 700 ? (b.netBad || 0) + 1 : 0;
+  if (b.netBad > 12) { b.netOff = off; b.netBad = 0; }
   const first = !b.net;
-  b.net = s; b.netAt = performance.now();
-  if (first) { b.x = s.x; b.z = s.z; b.yaw = s.y; b.hint = TRACK.globalNearest(b.x, b.z); }
+  b.net = s; b.netAt = now;
+  if (first) { b.x = s.x; b.z = s.z; b.yaw = s.y; b.hint = TRACK.globalNearest(b.x, b.z); b.netHint = b.hint; }
+  // where the report puts the bus on the track, for when the news stops for a moment
+  const q = TRACK.project(s.x, s.z, b.netHint != null ? b.netHint : TRACK.globalNearest(s.x, s.z), b.netQ || (b.netQ = {}));
+  const vx = fin(s.vx, 0), vz = fin(s.vz, 0);
+  b.netHint = q.idx; b.netAlong = vx * q.tx + vz * q.tz; b.netLat = -vx * q.tz + vz * q.tx; b.netYaw = wrapA(s.y - Math.atan2(q.tx, q.tz));
 }
-// a bus driven on another device: glide toward where it was plus how it was moving
+const PRED_T = {};
+// how long a bus state takes to get here. Every player measures the round trip to the host and sends it
+// with their states (rt, in ms); a friend's bus comes through the host, so both legs of the trip count
+function netLead(b) {
+  const n = b.net, hostsBus = !NET.host && b.owner === roomPeerId(NET.code);
+  const theirs = hostsBus ? 0 : n && n.rt > 0 ? n.rt / 2000 : 0.04;
+  const mine = NET.host ? 0 : NET.rtt > 0 ? NET.rtt / 2 : NET.route === 'relay' ? 0.09 : 0.03;
+  return clamp(mine + theirs + 0.005, 0.005, 0.35);
+}
+// the round trip to the host: a direct link reports it (WebRTC measures it), the relay gets a ping
+function measureRtt() {
+  const c = NET.conn; if (!c || !c.open) return;
+  if (c.relay) { c.send({ k: 'ping', t: Math.round(performance.now()) }); return; }
+  const pc = c.peerConnection;
+  if (pc && pc.getStats) pc.getStats().then((rep) => rep.forEach((s) => { if (s.type === 'candidate-pair' && s.nominated && s.state === 'succeeded' && s.currentRoundTripTime > 0) NET.rtt = s.currentRoundTripTime; })).catch(() => { /* no numbers: keep the guess */ });
+}
+// relay round trips jump around: keep the quickest of the last few, the prediction handles the rest
+function relayRtt(sample) { const L = NET.rtts || (NET.rtts = []); L.push(sample); if (L.length > 6) L.shift(); NET.rtt = Math.min(...L); }
+// a bus driven on another device keeps moving the way it was last reported to move, and the gap to the
+// prediction closes smoothly, so a late or lost packet doesn't make it stop and jump. When the news stops
+// for longer (a busy relay), the guess follows the track instead of a straight line, for up to 1.2 s.
 function remoteStep(b, dt) {
   const n = b.net; if (!n) return;
-  const age = Math.min(0.3, (performance.now() - b.netAt) / 1000);
-  const tx = n.x + fin(n.vx, 0) * age, tz = n.z + fin(n.vz, 0) * age;
-  const ex = tx - b.x, ez = tz - b.z;
-  if (ex * ex + ez * ez > 20 * 20) { b.x = tx; b.z = tz; b.yaw = n.y; b.hint = TRACK.globalNearest(b.x, b.z); }
-  else { const k = 1 - Math.exp(-14 * dt); b.x += ex * k; b.z += ez * k; b.yaw = lerpA(b.yaw, n.y, k); }
-  b.vx = fin(n.vx, 0); b.vz = fin(n.vz, 0); b.fwd = fin(n.f, 0); b.ctrl.steer = fin(n.st, 0); b.slip = fin(n.sl, 0); b.flyY = fin(n.fy, 0); b.yawRate = 0;
+  const vx = fin(n.vx, 0), vz = fin(n.vz, 0), yr = fin(n.yr, 0);
+  const age = (performance.now() - (fin(n.t, 0) + fin(b.netOff, 0))) / 1000 + netLead(b);
+  const pa = clamp(age, 0, 1.2), w = clamp((pa - 0.3) / 0.4, 0, 1);
+  let tx = n.x + vx * pa, tz = n.z + vz * pa, tyaw = wrapA(n.y - yr * Math.min(pa, 0.3));
+  if (w > 0) {
+    const q = b.netQ;
+    TRACK.pointAt(q.s + b.netAlong * pa, q.d + b.netLat * Math.min(pa, 0.3), PRED_T);
+    tx += (PRED_T.x - tx) * w; tz += (PRED_T.z - tz) * w; tyaw = lerpA(tyaw, wrapA(PRED_T.yaw + b.netYaw), w);
+  }
+  if (age < 1.2) {
+    const a = b.netAlong * w;
+    b.x += vx * dt * (1 - w) + b.q.tx * a * dt; b.z += vz * dt * (1 - w) + b.q.tz * a * dt;
+    b.yaw = wrapA(b.yaw - yr * dt * (1 - w));
+  }
+  const ex = tx - b.x, ez = tz - b.z, e2 = ex * ex + ez * ez;
+  if (e2 > 15 * 15) { b.x = tx; b.z = tz; b.yaw = tyaw; b.hint = TRACK.globalNearest(b.x, b.z); }
+  else { const k = 1 - Math.exp(-(e2 > 9 ? 10 : 5) * dt); b.x += ex * k; b.z += ez * k; b.yaw = lerpA(b.yaw, tyaw, 1 - Math.exp(-8 * dt)); }
+  b.vx = vx; b.vz = vz; b.fwd = fin(n.f, 0); b.ctrl.steer = fin(n.st, 0); b.slip = fin(n.sl, 0); b.flyY = fin(n.fy, 0); b.yawRate = yr;
   TRACK.project(b.x, b.z, b.hint, b.q); b.hint = b.q.idx; b.prevS = b.q.s;
   b.lap = n.lp | 0; b.progress = fin(n.pr, b.progress);
   const f = n.fl | 0;
   b.braking = !!(f & 1); b.boosting = !!(f & 2);
-  b.stunT = f & 4 ? 0.5 : 0; b.holdT = f & 8 ? 0.5 : 0; b.stunGuardT = f & 16 ? 1 : 0; b.pitT = f & 32 ? 1 : 0; b.pitLim = !!(f & 64);
-  const blown = !!(f & 128);
-  if (blown !== b.blown) { b.blown = blown; b.blownW = n.bw | 0; tyreScale(b, blown ? b.blownW : -1); }
-  b.tire = fin(n.tr, 100);
+  b.stunT = f & 4 ? 0.5 : 0; b.holdT = f & 8 ? 0.5 : 0; b.stunGuardT = f & 16 ? 1 : 0; b.ghostT = f & 32 ? 0.5 : 0; b.penStopT = f & 64 ? 0.5 : 0;
   b.fx = b.fx || {}; b.fx.plantT = f & 512 ? 0.5 : 0;
   b.effects = f & 256 ? [{ key: 'rainbow', kind: 'bonus', amt: 0, t: 1, max: 1, label: '' }] : [];
   if (!b.finished && (f & 1024)) { b.finished = true; b.finishTime = fin(n.ft, RACE.t); RACE.order.push(b); }
-  b.finishPen = n.fp || 0; b.best = n.bst > 0 ? n.bst : Infinity; b.pitStops = n.ps | 0; b.students = n.stu | 0;
+  b.finishPen = n.fp || 0; b.best = n.bst > 0 ? n.bst : Infinity; b.students = n.stu | 0;
   // the ability that bus is using, for visuals and for effects that are checked here (the marginal field)
   const key = typeof n.ab === 'string' ? n.ab : '';
   if (b.ab.key !== key || b.ab.id !== n.ai) b.ab = { key, t: 0, max: 0, id: n.ai, hits: new Set() };
@@ -3946,11 +3821,11 @@ function handleEvent(m) {
   } else if (m.op === 'bite' && t && !t.remote && src) {
     if (!canBite(t)) return;
     if (t.ab.key === 'song') cutSong(t, '', true);
-    t.holdT = clamp(fin(m.dur, 1.5), 0, 5); t.vx = t.vz = 0; t.pitPen = Math.max(t.pitPen, clamp(fin(m.pen, 2), 0, 10));
+    t.holdT = clamp(fin(m.dur, 1.5), 0, 5); t.vx = t.vz = 0; t.stopPen = Math.max(t.stopPen, clamp(fin(m.pen, 2), 0, 10));
     chompFX(src, t); SFX.chomp(camVol(t));
-    if (t.isPlayer) showMsg('CHOMP!', nick + ' bit you: +' + t.pitPen + ' s at your next pit stop', 'warn', 2.2);
+    if (t.isPlayer) showMsg('CHOMP!', nick + ' bit you: you stop for ' + t.stopPen + ' s at the start/finish line', 'warn', 2.2);
   } else if (m.op === 'throw' && t && !t.remote && src) {
-    if (t.aura || t.finished || t.pitT > 0 || t.pitLim || t.holdT > 0 || t.throwT > 0) return;
+    if (t.aura || t.finished || t.holdT > 0 || t.throwT > 0) return;
     if (t.ab.key === 'song') cutSong(t, '', true);
     t.throwT = CH.ada.ability.throwTime; t.throwSide = m.side < 0 ? -1 : 1; t.throwBy = src;
     showLep(t, t.throwSide); SFX.lep(camVol(t));
@@ -4159,8 +4034,6 @@ const SFX = {
   },
   powerUp(v) { if (!this.ctx || v <= 0.02) return; this.tone(300, 0.45, 'sine', 0.18 * v, 0, 1400); [660, 880, 1320].forEach((f, i) => this.tone(f, 0.14, 'triangle', 0.1 * v, 0.1 + i * 0.07)); },
   denied() { this.tone(170, 0.16, 'square', 0.08); },
-  bang(v) { if (!this.ctx || v <= 0.02) return; this.burst(0.45, 1500, 0.55 * v); this.tone(55, 0.35, 'sine', 0.4 * v, 0, 30); },
-  wrench() { if (!this.ctx) return; for (let i = 0; i < 4; i++) { this.tone(880, 0.28, 'sawtooth', 0.05, i * 0.55, 1300); this.burst(0.28, 3000, 0.05, 'bandpass', i * 0.55); } },
   bark(v) { if (!this.ctx || v <= 0.02) return; [0, 0.22].forEach((d) => this.tone(430, 0.12, 'square', 0.14 * v, d, 240)); },
   flap() { this.burst(0.18, 380, 0.12, 'lowpass'); },
   coin() { this.tone(1900 + Math.random() * 700, 0.08, 'triangle', 0.05); },
@@ -4333,7 +4206,7 @@ function cameraOcclusion(dt, active) {
   const p = RACE.player, cx = camera.position.x, cz = camera.position.z, cy = camera.position.y;
   let lift = 0;
   for (const b of RACE.buses) {
-    let target = 1;
+    let target = b.ghostT > 0 ? 0.4 : 1;   // a bus serving a penalty stop is a ghost
     if (active && b === p && drvId(p) === 'irem' && CAM.mode !== 2 && (p.ab.key === 'cat' || p.ab.key === 'thermos' || p.ab.key === 'coffee' || (p.fx && p.fx.plantT > 0))) target = 0.38;
     if (active && p && b !== p) {
       const dx = cx - b.x, dz = cz - b.z, c = Math.cos(b.yaw), s = Math.sin(b.yaw);
@@ -4353,7 +4226,7 @@ function cameraOcclusion(dt, active) {
 }
 
 // =====================================================================
-//  PARTICLES (tyre smoke, dust)
+//  PARTICLES (drift smoke, dust)
 // =====================================================================
 const FX = { pool: [], i: 0 };
 function initFX() {
@@ -4380,24 +4253,8 @@ function updateFX(dt) {
     s.position.x += u.vx * dt; s.position.y += u.vy * dt; s.position.z += u.vz * dt;
   }
 }
-const SPK = { pool: [], i: 0 };
-function initSparks() {
-  const t = texLabel(32, 32, (g) => { const gr = g.createRadialGradient(16, 16, 1, 16, 16, 15); gr.addColorStop(0, 'rgba(255,250,210,1)'); gr.addColorStop(0.4, 'rgba(255,170,40,.9)'); gr.addColorStop(1, 'rgba(255,120,0,0)'); g.fillStyle = gr; g.fillRect(0, 0, 32, 32); });
-  for (let i = 0; i < 60; i++) {
-    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, toneMapped: false }));
-    s.visible = false; s.scale.set(0.32, 0.32, 1); s.renderOrder = 5; s.userData = { v: new THREE.Vector3(), life: 0 }; scene.add(s); SPK.pool.push(s);
-  }
-}
-function spark(x, z, bx, bz) {
-  const s = SPK.pool[SPK.i]; SPK.i = (SPK.i + 1) % SPK.pool.length;
-  s.position.set(x, 0.25, z); s.userData.v.set(-bx * rr(4, 10) + rr(-3, 3), rr(1.5, 4.5), -bz * rr(4, 10) + rr(-3, 3)); s.userData.life = rr(0.2, 0.4); s.visible = true;
-}
-function updateSparks(dt) {
-  for (const s of SPK.pool) { if (!s.visible) continue; const u = s.userData; u.life -= dt; if (u.life <= 0) { s.visible = false; continue; } u.v.y -= 20 * dt; s.position.addScaledVector(u.v, dt); }
-}
 function emitFor(b, dt) {
   const spd = b.speed;
-  if (b.blown && spd > 4) { wheelWorld(b, b.blownW, TMPW); const bx = Math.sin(b.yaw), bz = Math.cos(b.yaw); spark(TMPW.x, TMPW.z, bx, bz); if (Math.random() < 0.6) spark(TMPW.x, TMPW.z, bx, bz); }
   const drift = Math.abs(b.slip) > 0.16 && spd > 8;
   const dust = b.off && spd > 6;
   if (!drift && !dust) return;
@@ -4418,17 +4275,21 @@ function emitFor(b, dt) {
 const RACE = {
   state: 'boot', t: 0, laps: store.get('laps', 6), diff: store.get('diff', 1), busIdx: store.get('bus', 0), drvIdx: store.get('drv', 0),
   buses: [], player: null, firstPass: [], order: [], stateT: 0, lightsOn: 0, goAt: 0, paused: false,
-  resetCD: 0, stuckT: 0, hintT: 0, quality: store.get('quality', TOUCH ? 'medium' : 'high'), perf: { t: 0, n: 0, sum: 0, done: false }
+  resetCD: 0, stuckT: 0, hintT: 0, quality: store.get('quality', TOUCH ? 'medium' : 'high')
 };
 if (![3, 6, 10].includes(RACE.laps)) RACE.laps = 6;
 if (!(RACE.diff >= 0 && RACE.diff <= 2)) RACE.diff = 1;
+if (!['high', 'medium', 'low'].includes(RACE.quality)) RACE.quality = 'high';
 if (!(RACE.busIdx >= 0 && RACE.busIdx < BUSES.length)) RACE.busIdx = 0;
 if (!(RACE.drvIdx >= 0 && RACE.drvIdx < DRIVERS.length)) RACE.drvIdx = 0;
 
 // ---------- HUD ----------
 const H = {};
+// only touch the page when a value really changes: every write costs the browser a style and layout pass
+function setT(el, v) { v = String(v); if (el._t !== v) { el._t = v; el.textContent = v; } }
+function setW(el, frac) { const v = Math.round(clamp(frac, 0, 1) * 100) + '%'; if (el._w !== v) { el._w = v; el.style.width = v; } }
 function initHUD() {
-  ['hud', 'hPos', 'hPosOf', 'hLap', 'hTime', 'hLast', 'hBest', 'tLap', 'tLeft', 'hSpeed', 'hMod', 'abilBox', 'hAbName', 'hAbCost', 'hBank', 'hBankLbl', 'hAbFill', 'hAbHint', 'hEffs', 'hDriver', 'hDrvImg', 'hDrvNick', 'hDrvPassive', 'alarm', 'stun', 'sb', 'terms', 'revWarn', 'checkCard', 'chkZone', 'chkMark', 'chkMsg', 'quizCard', 'qzText', 'qzL', 'qzR', 'qzHint', 'brainrot', 'tyreBox', 'hTyre', 'hTyrePct', 'pitLim', 'pitLimTxt', 'pitBox', 'hPitBar', 'lights', 'intro', 'introTop', 'introTitle', 'introHand', 'msg', 'toast', 'wrong', 'hint', 'speedfx', 'touch', 'minimap', 'tower'].forEach((id) => { H[id] = $(id); });
+  ['hud', 'hPos', 'hPosOf', 'hLap', 'hTime', 'hLast', 'hBest', 'tLap', 'tLeft', 'hSpeed', 'hMod', 'abilBox', 'hAbName', 'hAbCost', 'hBank', 'hBankLbl', 'hAbFill', 'hAbHint', 'hEffs', 'hDriver', 'hDrvImg', 'hDrvNick', 'hDrvPassive', 'alarm', 'stun', 'sb', 'terms', 'revWarn', 'checkCard', 'chkZone', 'chkMark', 'chkMsg', 'quizCard', 'qzText', 'qzL', 'qzR', 'qzHint', 'brainrot', 'lights', 'intro', 'introTop', 'introTitle', 'introHand', 'msg', 'toast', 'wrong', 'hint', 'speedfx', 'touch', 'minimap', 'tower'].forEach((id) => { H[id] = $(id); });
   H.rows = [];
   for (let i = 0; i < 6; i++) {
     const r = document.createElement('div'); r.className = 'trow';
@@ -4446,17 +4307,18 @@ function initHUD() {
   H.mmPath = new Path2D();
   for (let i = 0; i <= T.N; i += 3) { const k = i % T.N, p = mmPt(T.px[k], T.pz[k]); if (i === 0) H.mmPath.moveTo(p[0], p[1]); else H.mmPath.lineTo(p[0], p[1]); }
   H.mmPath.closePath();
-  H.mmPit = new Path2D();
-  for (let s = PIT.s0; s <= PIT.s1; s += 5) { const q = TRACK.pointAt(s, Math.min(-HW, pitOuter(s) + 6), {}), p = mmPt(q.x, q.z); if (s === PIT.s0) H.mmPit.moveTo(p[0], p[1]); else H.mmPit.lineTo(p[0], p[1]); }
+  const base = document.createElement('canvas'); base.width = mm.width; base.height = mm.height;
+  const bg = base.getContext('2d'); bg.setTransform(dpr, 0, 0, dpr, 0, 0);
+  bg.lineJoin = 'round'; bg.strokeStyle = 'rgba(0,0,0,.6)'; bg.lineWidth = 9; bg.stroke(H.mmPath);
+  bg.strokeStyle = '#e8ecf2'; bg.lineWidth = 4; bg.stroke(H.mmPath);
+  const sp = mmPt(TRACK.px[0], TRACK.pz[0]); bg.fillStyle = '#e10600'; bg.fillRect(sp[0] - 2, sp[1] - 6, 4, 12);
+  H.mmBase = base;
 }
 function mmPt(x, z) { return [95 + (x - H.mm.cx) * H.mm.sc, 95 + (z - H.mm.cz) * H.mm.sc]; }
 function drawMinimap() {
   const g = H.minimap.getContext('2d'), d = H.mmScale;
-  g.setTransform(d, 0, 0, d, 0, 0); g.clearRect(0, 0, 190, 190);
-  g.lineJoin = 'round'; g.strokeStyle = 'rgba(0,0,0,.6)'; g.lineWidth = 9; g.stroke(H.mmPath);
-  g.strokeStyle = '#e8ecf2'; g.lineWidth = 4; g.stroke(H.mmPath);
-  g.strokeStyle = '#ffb000'; g.lineWidth = 2.5; g.stroke(H.mmPit);
-  const sp = mmPt(TRACK.px[0], TRACK.pz[0]); g.fillStyle = '#e10600'; g.fillRect(sp[0] - 2, sp[1] - 6, 4, 12);
+  g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, H.minimap.width, H.minimap.height); g.drawImage(H.mmBase, 0, 0);
+  g.setTransform(d, 0, 0, d, 0, 0);
   for (const s of W.stops) { if (RACE.player && s.got.get(RACE.player) === RACE.player.lap) continue; const p = TRACK.pointAt(s.s, 0, TMP); const q = mmPt(p.x, p.z); g.fillStyle = '#ffc629'; g.beginPath(); g.arc(q[0], q[1], 3, 0, 7); g.fill(); }
   for (const b of RACE.buses) {
     if (b === RACE.player) continue;
@@ -4484,58 +4346,51 @@ let hudT = 0;
 function updateHUD(dt) {
   const p = RACE.player; if (!p) return;
   const kmh = Math.round(Math.max(0, p.fwd) * 3.6);
-  H.hSpeed.textContent = kmh;
+  setT(H.hSpeed, kmh);
   // ability panel: students (or Ali's sweet meter), whether the ability can be used, how long it still runs
   const info = abilityInfo(p);
-  H.hAbName.textContent = info.name; H.hAbCost.textContent = info.cost;
-  H.hBank.textContent = info.big; H.hBankLbl.textContent = info.unit;
-  H.hAbFill.style.width = Math.round(clamp(info.frac, 0, 1) * 100) + '%';
+  setT(H.hAbName, info.name); setT(H.hAbCost, info.cost);
+  setT(H.hBank, info.big); setT(H.hBankLbl, info.unit);
+  setW(H.hAbFill, info.frac);
   if (H.abilBox.dataset.s !== info.state) { H.abilBox.dataset.s = info.state; H.abilBox.className = 'abil ' + info.state; }
-  H.hAbHint.textContent = info.hint;
-  const net = p.abilMul - 1;
-  H.hMod.textContent = Math.abs(net) > 0.0005 ? (net > 0 ? '+' : '−') + pct(net) : '';
-  H.hMod.className = net > 0 ? 'up' : net < 0 ? 'down' : '';
-  H.speedfx.classList.toggle('on', p.boosting);
-  const tp = Math.max(0, Math.round(p.tire));
-  H.hTyre.style.width = (p.blown ? 100 : tp) + '%';
-  H.tyreBox.className = 'tyres' + (p.blown ? ' blown' : tp < 25 ? ' low' : tp < 50 ? ' mid' : '');
-  H.hTyrePct.textContent = p.blown ? 'FLAT' : tp + '%';
-  const limOn = p.pitLim && p.pitT <= 0 && RACE.state === 'race';
-  if (H.pitLim.hidden === limOn) H.pitLim.hidden = !limOn;
-  if (limOn) H.pitLimTxt.textContent = p.pitDone ? '80 km/h' : 'stop in box ' + p.def.num;
-  if (p.pitT > 0) { H.pitBox.hidden = false; H.hPitBar.style.width = Math.round((1 - p.pitT / (p.pitMax || PIT.time)) * 100) + '%'; } else if (!H.pitBox.hidden) H.pitBox.hidden = true;
+  setT(H.hAbHint, info.hint);
+  const net = p.abilMul - 1, mc = net > 0 ? 'up' : net < 0 ? 'down' : '';
+  setT(H.hMod, Math.abs(net) > 0.0005 ? (net > 0 ? '+' : '−') + pct(net) : '');
+  if (H.hMod.className !== mc) H.hMod.className = mc;
+  if (H.speedfx._on !== p.boosting) { H.speedfx._on = p.boosting; H.speedfx.classList.toggle('on', p.boosting); }
   if (msgTimer > 0) { msgTimer -= dt; if (msgTimer <= 0) H.msg.innerHTML = ''; }
   hudT -= dt; if (hudT > 0) return; hudT = 0.1;
   const st = standings(), pos = st.indexOf(p) + 1, lapShown = clamp(Math.max(1, p.lap), 1, RACE.laps);
-  H.hPos.textContent = pos; H.hPosOf.textContent = '/' + st.length;
-  H.hLap.textContent = lapShown + '/' + RACE.laps; H.tLap.textContent = lapShown + '/' + RACE.laps;
-  H.hTime.textContent = fmt(RACE.state === 'race' ? RACE.t : (p.finished ? p.finishTime : 0));
-  H.hLast.textContent = p.lapTimes.length ? fmt(p.lapTimes[p.lapTimes.length - 1]) : '—';
-  H.hBest.textContent = isFinite(p.best) ? fmt(p.best) : '—';
+  setT(H.hPos, pos); setT(H.hPosOf, '/' + st.length);
+  setT(H.hLap, lapShown + '/' + RACE.laps); setT(H.tLap, lapShown + '/' + RACE.laps);
+  setT(H.hTime, fmt(RACE.state === 'race' ? RACE.t : (p.finished ? p.finishTime : 0)));
+  setT(H.hLast, p.lapTimes.length ? fmt(p.lapTimes[p.lapTimes.length - 1]) : '—');
+  setT(H.hBest, isFinite(p.best) ? fmt(p.best) : '—');
   // temporary effects with the time they have left
   const efs = effectList(p).slice(0, 7).map(([k, t, time]) => '<span class="eff ' + k + '">' + t + (time != null ? ' <em>' + time.toFixed(1) + ' s</em>' : '') + '</span>').join('');
   if (efs !== H.effHtml) { H.effHtml = efs; H.hEffs.innerHTML = efs; }
   const leader = st[0];
   st.forEach((b, i) => {
     const r = H.rows[i];
-    r.p.textContent = i + 1; r.c.style.background = b.def.hud; r.n.textContent = b.driver ? b.driver.nick : b.def.model;
+    setT(r.p, i + 1); if (r.c._bg !== b.def.hud) { r.c._bg = b.def.hud; r.c.style.background = b.def.hud; } setT(r.n, b.driver ? b.driver.nick : b.def.model);
     let g = '';
     if (b.finished) g = i === 0 ? 'FINISH' : '+' + (b.finishTime - leader.finishTime).toFixed(3);
-    else if (b.pitT > 0 || b.pitLim) g = 'PIT';
+    else if (b.penStopT > 0) g = 'PENALTY';
     else if (i === 0) g = 'LEADER';
     else if (leader.progress - b.progress > TRACK.L) g = '+1 LAP';
     else g = '+' + Math.max(0, b.gap).toFixed(3);
-    r.g.textContent = g;
-    r.el.classList.toggle('me', b === p); r.el.classList.toggle('fin', b.finished); r.el.classList.toggle('hum', !!b.human && b !== p);
+    setT(r.g, g);
+    const cls = 'trow' + (b === p ? ' me' : '') + (b.finished ? ' fin' : '') + (b.human && b !== p ? ' hum' : '');
+    if (r.el.className !== cls) r.el.className = cls;
   });
-  H.tLeft.textContent = RACE.state === 'race' ? (p.lap >= RACE.laps ? 'FINAL LAP' : '') : '';
+  setT(H.tLeft, RACE.state === 'race' ? (p.lap >= RACE.laps ? 'FINAL LAP' : '') : '');
   drawMinimap();
 }
 
 // ---------- race setup ----------
 function lineupS(i) { return 18; }
 function setLineup() {
-  RACE.buses.forEach((b, i) => { b.menuS = lineupS(i); b.menuLat = (i - 2.5) * 3.15; b.place(b.menuS, b.menuLat); b.ctrl.thr = 0; b.ctrl.steer = 0; b.boosting = false; resetAbil(b); resetTyres(b); });
+  RACE.buses.forEach((b, i) => { b.menuS = lineupS(i); b.menuLat = (i - 2.5) * 3.15; b.place(b.menuS, b.menuLat); b.ctrl.thr = 0; b.ctrl.steer = 0; b.boosting = false; resetAbil(b); });
   assignLineupDrivers();
 }
 function startRace() {
@@ -4558,7 +4413,7 @@ function startRace() {
       b.resetRace();
       b.ai.base = b.isPlayer ? 1 : rr(0.975, 1.0);
       b.vmul = b.isPlayer ? 1 : D.vmul * b.ai.base;
-      b.ai.skill = D.skill * rr(0.96, 1.02); b.ai.greed = rr(0.6, 0.95); b.ai.stopDec = {}; b.ai.pitAt = rr(38, 46); b.ai.pit = false;
+      b.ai.skill = D.skill * rr(0.96, 1.02); b.ai.greed = rr(0.6, 0.95); b.ai.stopDec = {};
       b.cp = Math.floor(b.progress / 20);
     });
     finishRaceSetup(p, chosen);
@@ -4570,7 +4425,7 @@ function finishRaceSetup(p, chosen) {
   RACE.firstPass = []; RACE.order = []; RACE.t = 0; RACE.resetCD = 0; RACE.stuckT = 0; RACE.extChecks = [];
   for (const s of W.stops) { s.got.clear(); s.anim = -1; s.backAt = 0; s.kids.forEach((k) => { k.visible = true; k.position.copy(k.userData.home); k.scale.setScalar(k.userData.sc); }); }
   CAM.yaw = p.yaw; CAM.hint = TRACK.globalNearest(p.x, p.z); CAM.lift = 0; CAM.ox = null;
-  RACE.perf = { t: 0, n: 0, sum: 0, done: false };
+  PERF.win = PERF.sum = PERF.n = 0; PERF.ceil = 1; PERF.slow = 0; PERF.good = 0;
   H.introTop.textContent = (NET.racing ? 'Online · ' : 'Round 1 · ') + 'Ankara · ' + RACE.laps + (RACE.laps === 1 ? ' lap' : ' laps') + ' · ' + (TRACK.L / 1000).toFixed(2) + ' km';
   H.introTitle.textContent = 'Anka Bilim Grand Prix';
   H.hDrvImg.src = chosen.photo; H.hDriver.style.setProperty('--dc', chosen.color); H.hDrvNick.textContent = chosen.nick;
@@ -4617,10 +4472,13 @@ Bus.prototype.crossLine = function () {
   }
   this.lapStart = RACE.t;
   if (this.lap > RACE.laps && !this.finished) {
-    // a pit penalty from Ali that was never served is added at the line
-    this.finished = true; this.finishPen = this.pitPen; this.pitPen = 0; this.finishTime = RACE.t + this.finishPen; RACE.order.push(this);
+    // Ali's stop penalty can't be served at the finish: it is added to the race time instead
+    this.finished = true; this.finishPen = this.stopPen; this.stopPen = 0; this.finishTime = RACE.t + this.finishPen; RACE.order.push(this);
     if (this.isPlayer) playerFinished();
-  } else if (this.isPlayer && !this.finished) {
+    return;
+  }
+  if (this.stopPen > 0 && !this.finished) { servePenalty(this); return; }
+  if (this.isPlayer && !this.finished) {
     if (this.lap === RACE.laps && RACE.laps > 1) showMsg('Final lap', 'Anka Bilim School is waiting', 'warn', 2);
     else if (this.lap > 1) showMsg('Lap ' + this.lap, 'of ' + RACE.laps, '', 1.4);
   }
@@ -4686,7 +4544,6 @@ function raceStep(dt) {
     if (!b.remote) {
       TRACK.project(b.x, b.z, b.hint, b.q); b.hint = b.q.idx;
       b.updateProgress();
-      tyreStep(b, dt);
     }
     const cp = Math.floor(b.progress / 20);
     while (b.cp < cp) { b.cp++; const f = RACE.firstPass[b.cp]; if (f === undefined) { RACE.firstPass[b.cp] = RACE.t; b.gap = 0; } else b.gap = RACE.t - f; }
@@ -4704,7 +4561,7 @@ function raceStep(dt) {
   if (p && RACE.state === 'race') {
     const along = p.vx * p.q.tx + p.vz * p.q.tz;
     p.wrongT = along < -3 ? p.wrongT + dt : Math.max(0, p.wrongT - dt * 2);
-    RACE.stuckT = p.speed < 1.2 && p.pitT <= 0 && !p.pitLim ? RACE.stuckT + dt : 0;
+    RACE.stuckT = p.speed < 1.2 && !(p.holdT > 0) ? RACE.stuckT + dt : 0;
     RACE.resetCD = Math.max(0, RACE.resetCD - dt);
   }
 }
@@ -4826,7 +4683,7 @@ function renderResults() {
     let t;
     if (b.finished) t = (i === 0 || !lead.finished ? fmt(b.finishTime) : fmt(b.finishTime) + ' <small style="color:var(--ink-3)">+' + (b.finishTime - lead.finishTime).toFixed(3) + '</small>') + (b.finishPen ? ' <small style="color:#ff8c7a">incl. ' + b.finishPen + ' s penalty</small>' : '');
     else t = '<span class="run">Running · lap ' + clamp(b.lap, 1, RACE.laps) + '/' + RACE.laps + '</span>';
-    return '<tr class="' + (b === p ? 'me' : '') + '"><td class="p">' + (i + 1) + '</td><td><span class="nm"><i style="background:' + b.def.hud + '"></i><span>' + (b.driver ? b.driver.nick + ' \u00b7 ' : '') + b.def.brand + ' ' + b.def.model + ' <small>No. ' + b.def.num + (b === p ? ' · you' : '') + '</small></span></span></td><td>' + t + '</td><td>' + (isFinite(b.best) ? fmt(b.best) : '—') + '</td><td>' + (b.pitStops || 0) + '</td><td>' + b.students + '</td></tr>';
+    return '<tr class="' + (b === p ? 'me' : '') + '"><td class="p">' + (i + 1) + '</td><td><span class="nm"><i style="background:' + b.def.hud + '"></i><span>' + (b.driver ? b.driver.nick + ' \u00b7 ' : '') + b.def.brand + ' ' + b.def.model + ' <small>No. ' + b.def.num + (b === p ? ' · you' : '') + '</small></span></span></td><td>' + t + '</td><td>' + (isFinite(b.best) ? fmt(b.best) : '—') + '</td><td>' + b.students + '</td></tr>';
   }).join('');
 }
 
@@ -4863,19 +4720,30 @@ function onKeyPress(e) {
 }
 
 // ---------- graphics quality ----------
-function applyQuality(q) {
-  RACE.quality = q; store.set('quality', q);
-  const dpr = window.devicePixelRatio || 1;
-  renderer.setPixelRatio(Math.min(dpr, q === 'high' ? 1.75 : q === 'medium' ? 1.25 : 1));
-  const want = q !== 'low', size = q === 'high' ? 2048 : 1024;
-  if (renderer.shadowMap.enabled !== want) { renderer.shadowMap.enabled = want; scene.traverse((o) => { if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => { m.needsUpdate = true; }); }); }
+// the setting is the ceiling; while racing, the resolution follows the frame rate (PERF.scale), and if even the
+// lowest resolution is too slow the game steps down to cheaper shadows, then none
+const PERF = { scale: 1, win: 0, n: 0, sum: 0, wmin: 1, mins: [], cool: 0, hold: 0, good: 0, slow: 0, ceil: 1, upAt: -99, manual: false };
+function qualityPR(q) { return Math.min(window.devicePixelRatio || 1, q === 'high' ? 1.5 : q === 'medium' ? 1.1 : 0.85); }
+function applyPixelRatio() {
+  const pr = Math.max(0.35, qualityPR(RACE.quality) * PERF.scale);
+  if (Math.abs(renderer.getPixelRatio() - pr) > 0.005) { renderer.setPixelRatio(pr); resize(); }
+}
+function applyQuality(q, auto) {
+  RACE.quality = q; if (!auto) store.set('quality', q);
+  const want = q !== 'low', size = q === 'high' ? 2048 : 1024, type = q === 'high' ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
+  if (renderer.shadowMap.enabled !== want || renderer.shadowMap.type !== type) {
+    renderer.shadowMap.enabled = want; renderer.shadowMap.type = type;
+    scene.traverse((o) => { if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => { m.needsUpdate = true; }); });
+  }
   sun.castShadow = want;
   if (sun.shadow.mapSize.x !== size) { sun.shadow.mapSize.set(size, size); if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; } }
+  renderer.setPixelRatio(Math.max(0.35, qualityPR(q) * PERF.scale));
   resize();
 }
 function resize() {
   const w = window.innerWidth, h = window.innerHeight;
   renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
+  RACE.redraw = true;
 }
 
 // ---------- main loop ----------
@@ -4883,8 +4751,10 @@ const FIXED = 1 / 120;
 let acc = 0, last = 0, clock = 0;
 function frame(now) {
   requestAnimationFrame(frame);
-  const dt = Math.min(0.1, (now - (last || now)) / 1000); last = now;
-  if (RACE.paused && !NET.racing) { renderer.render(scene, camera); return; }   // an online race keeps going under the menu
+  const raw = (now - (last || now)) / 1000, dt = Math.min(0.1, raw); last = now;
+  // paused: the last picture stays on screen, no need to draw it again every frame
+  if (RACE.paused && !NET.racing) { if (RACE.redraw) { RACE.redraw = false; renderer.render(scene, camera); } return; }   // an online race keeps going under the menu
+  perfWatch(raw);
   clock += dt; RACE.stateT += dt;
   try { tick(dt); } catch (err) { if (!RACE.errLogged) { RACE.errLogged = true; console.error(err); } }
   renderer.render(scene, camera);
@@ -4908,7 +4778,6 @@ function tick(dt) {
   updateCamera(dt);
   if (s === 'intro' || s === 'countdown' || s === 'race' || s === 'finish') updateHUD(dt);
   updateAudio();
-  perfWatch(dt);
 }
 function updateVisuals(dt) {
   const s = RACE.state;
@@ -4927,8 +4796,6 @@ function updateVisuals(dt) {
   updateAbilFX(dt, clock);
   updateStunStars(clock);
   updateCoinsRings(dt);
-  updatePitCrews(dt, clock);
-  updateSparks(dt);
   updatePlayerFX(dt);
   W.crowdTime.value = clock;
   animateStops(dt, clock);
@@ -5019,19 +4886,49 @@ function updateAudio() {
   const nearStart = Math.min(TRACK.wrapS(p.q.s), TRACK.L - TRACK.wrapS(p.q.s)) < 260 ? 1 : 0.25;
   SFX.engine(rpm, load, p.boosting, true, p.speed, clamp((Math.abs(p.slip) - 0.12) * 3, 0, 1) * (p.speed > 8 ? 1 : 0), nearStart);
   SFX.horn(IN.horn && s !== 'results');
-  if ((s === 'race' || s === 'finish') && p.blown && p.speed > 3 && clock > (RACE.thumpAt || 0)) { SFX.tone(70, 0.06, 'square', 0.07); RACE.thumpAt = clock + Math.max(0.07, 2.2 / p.speed); }
   if (p.boosting && !p.wasBoosting) SFX.whoosh();
   p.wasBoosting = p.boosting;
 }
-function perfWatch(dt) {
-  const pf = RACE.perf;
-  if (RACE.state !== 'race' || pf.done) return;
-  pf.t += dt; pf.sum += dt; pf.n++;
-  if (pf.t > 4) {
-    const avg = pf.sum / pf.n;
-    if (avg > 0.034 && RACE.quality !== 'low') { applyQuality(RACE.quality === 'high' ? 'medium' : 'low'); toast('Graphics lowered for a smoother race'); pf.t = 0; pf.sum = 0; pf.n = 0; }
-    else pf.done = true;
-  }
+// watches the real frame time while racing. The screen's refresh rate caps it: the quickest frames show
+// that rate (60 Hz = 16.7 ms), and the goal is to keep up with it, or with 60 frames a second on faster screens
+function perfWatch(raw) {
+  const s = RACE.state;
+  if (!(s === 'intro' || s === 'countdown' || s === 'race' || s === 'finish') || RACE.paused || document.hidden || raw > 0.5) { PERF.win = PERF.sum = PERF.n = 0; PERF.wmin = 1; return; }
+  PERF.win += raw; PERF.sum += raw; PERF.n++; PERF.wmin = Math.min(PERF.wmin, raw);
+  if (PERF.cool > 0) PERF.cool -= raw;
+  if (PERF.hold > 0) PERF.hold -= raw;
+  if (PERF.win < 0.6) return;
+  const avg = PERF.sum / PERF.n;
+  PERF.mins.push(PERF.wmin); if (PERF.mins.length > 6) PERF.mins.shift();
+  PERF.win = PERF.sum = PERF.n = 0; PERF.wmin = 1;
+  const goal = clamp(Math.min(...PERF.mins), 1 / 61, 1 / 48);
+  if (PERF.cool > 0) return;
+  if (avg > goal * 1.15) {
+    // clearly slower than the screen: draw fewer pixels
+    PERF.good = 0;
+    if (clock - PERF.upAt < 6) PERF.ceil = Math.min(PERF.ceil, PERF.scale * 0.97);   // that step up was too much: stay below it
+    if (PERF.scale > 0.5) { PERF.scale = Math.max(0.5, PERF.scale * (avg > 1 / 32 ? 0.8 : 0.9)); applyPixelRatio(); PERF.cool = 0.8; PERF.hold = 12; }
+    else if (!PERF.manual && RACE.quality !== 'low' && ++PERF.slow >= 3) {
+      PERF.slow = 0; PERF.scale = 0.8; PERF.ceil = 1;
+      applyQuality(RACE.quality === 'high' ? 'medium' : 'low', true); toast('Graphics lowered for a smoother race'); PERF.cool = 2; PERF.hold = 12;
+    }
+  } else if (avg < goal * 1.04 && PERF.scale < PERF.ceil - 0.01 && PERF.hold <= 0) {
+    // smooth for a few seconds: sharpen again, step by step
+    if (++PERF.good >= 5) { PERF.good = 0; PERF.scale = Math.min(PERF.ceil, PERF.scale * 1.1); applyPixelRatio(); PERF.upAt = clock; PERF.cool = 1.5; PERF.hold = 3; }
+  } else PERF.good = 0;
+}
+
+// compile every shader and upload every texture before the first race: the first use of a power
+// would otherwise stall the game for a moment while the graphics driver catches up
+function warmUp() {
+  try {
+    renderer.compile(scene, camera);
+    const seen = new Set();
+    scene.traverse((o) => {
+      const ms = !o.material ? [] : Array.isArray(o.material) ? o.material : [o.material];
+      for (const m of ms) for (const k of ['map', 'alphaMap', 'emissiveMap']) { const t = m[k]; if (t && t.isTexture && !seen.has(t)) { seen.add(t); renderer.initTexture(t); } }
+    });
+  } catch (e) { /* only a head start */ }
 }
 
 // ---------- boot ----------
@@ -5051,7 +4948,7 @@ function wireUI() {
   $('btnQuit').addEventListener('click', goTitle);
   $('btnSound').addEventListener('click', () => { SFX.init(); SFX.setMuted(!SFX.muted); refreshPauseLabels(); });
   $('btnCam').addEventListener('click', () => { CAM.ox = null; CAM.mode = (CAM.mode + 1) % 3; store.set('cam', CAM.mode); refreshPauseLabels(); });
-  $('btnQual').addEventListener('click', () => { const q = ['high', 'medium', 'low']; applyQuality(q[(q.indexOf(RACE.quality) + 1) % 3]); RACE.perf.done = true; refreshPauseLabels(); });
+  $('btnQual').addEventListener('click', () => { const q = ['high', 'medium', 'low']; PERF.manual = true; PERF.scale = 1; PERF.ceil = 1; applyQuality(q[(q.indexOf(RACE.quality) + 1) % 3]); refreshPauseLabels(); });
   $('btnAgain').addEventListener('click', () => { if (NET.on) hostBackToLobby(); else startRace(); });
   $('btnChange').addEventListener('click', goDriver);
   const grid = $('drvGrid');
@@ -5094,7 +4991,7 @@ async function boot(saved) {
     initRenderer();
     TAIL_ON.copy(col(0xff2a1a)); TAIL_OFF.copy(col(0x6a0909)); SMOKE.copy(col(0xe9e9e9)); DUST.copy(col(0xb49a74));
     buildWorld(); buildGyms();
-    initFX(); initSparks();
+    initFX();
     ensurePhotos();
     await loadFaces();
     initSuperFX(); initAbilFX();
@@ -5102,7 +4999,10 @@ async function boot(saved) {
     RACE.buses.forEach((b) => { b.resetRace(); });
     initHUD(); wireUI();
     setLineup();
-    applyQuality(RACE.quality);
+    prebuildFX();
+    if (SOFT_GL) { RACE.quality = 'low'; PERF.scale = 0.7; }   // no graphics chip: the lightest settings from the start
+    applyQuality(RACE.quality, true);
+    warmUp();
     setState('title'); showScreen('scrTitle');
     const bs = $('btnStart'); bs.disabled = false; bs.textContent = 'Start engines';
     note.hidden = true;

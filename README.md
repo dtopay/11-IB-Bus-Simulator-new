@@ -46,6 +46,7 @@ Every ability works between players too: stuns, slowdowns, rain, Volkan's field,
 - If even the backup connection is blocked, use mobile data or a phone hotspot.
 - The host runs the bots, so the host should keep the game open on screen.
 - If a player leaves in the middle of a race, a bot takes over their bus.
+- Your friends' buses move smoothly between updates: every device measures the delay of its connection, predicts where the other buses are right now, and corrects small differences gently instead of jumping. Late or lost messages no longer hold up the ones behind them.
 
 ## Rules for all abilities
 
@@ -92,7 +93,7 @@ Every ability works between players too: stuns, slowdowns, rain, Volkan's field,
 ### SarpDBastırma (Sarp Bayar)
 
 - **Passive 1: Brainrot windows.** Small silly pop-up windows flash at the edge of your screen every 17 s for up to 0.8 s. They never cover the road. Every use of your ability makes them 3 s more frequent (at most every 8 s).
-- **Passive 2: Happy aura.** Nothing from the other drivers' powers touches you, good or bad: no reversed controls, stuns, coffee, burn, cinnamon rolls, forced pit stops or rain. Normal crashes and the track surface still count. To balance this, your top speed is 2% lower.
+- **Passive 2: Happy aura.** Nothing from the other drivers' powers touches you, good or bad: no reversed controls, stuns, coffee, burn, cinnamon rolls, Ali's forced stop or rain. Normal crashes and the track surface still count. To balance this, your top speed is 2% lower.
 - **Ability: Permanent speed** (10 students). +2% top speed until the finish, every time you use it. Up to 3 times (+6%), so you end up 4% faster than normal.
 
 ### CinnamonRoll (Ela Üstündağ)
@@ -105,7 +106,7 @@ Every ability works between players too: stuns, slowdowns, rain, Volkan's field,
 
 - **Passive 1: Student snacks.** You eat the students you pick up (in a funny, cartoon way). They fill your sweet meter instead of a student count: +2% per student.
 - **Passive 2: Desserts.** About every 18 s a donut only you can grab appears on the road ahead (one at a time): +8% sweet meter. The meter tops out at 100%.
-- **Ability: Sweet crisis** (25%+ sweet meter). Needs at least 25% and empties the whole meter. 25–49%: +10% speed for 4 s. 50–99%: every other driver gets a 1.2 s reaction check; whoever fails is 15% slower for 2 s. 100%: for 8 s you hunt: the first rival you crash into is bitten for 1.5 s (neither of you can move), then you get +18% for 4 s and they must wait 2 s longer at their next pit stop (if they never stop again, it is added to their finish time). No target in time means no refund.
+- **Ability: Sweet crisis** (25%+ sweet meter). Needs at least 25% and empties the whole meter. 25–49%: +10% speed for 4 s. 50–99%: every other driver gets a 1.2 s reaction check; whoever fails is 15% slower for 2 s. 100%: for 8 s you hunt: the first rival you crash into is bitten for 1.5 s (neither of you can move), then you get +18% for 4 s, and they must stop for 2 s the next time they cross the start/finish line (while they wait they are a ghost nobody can hit; at the finish the 2 s are added to their race time). No target in time means no refund.
 
 ### RomanceHunter (Ada Yeşil)
 
@@ -117,14 +118,14 @@ Every ability works between players too: stuns, slowdowns, rain, Volkan's field,
 
 Every balance number for the nine drivers is in **`characters.js`**: costs, percentages, durations, chances, ranges and the common limits in `RULES`. Change a value, save, and reload the page. The texts on the driver screen are built from the same numbers, so they stay correct.
 
-The student rate (5 per stop, 6 stops per lap) belongs to the track and is not in that file. In test races with bots, a bus picks up about 45 students in 3 laps and 75–95 in 6 laps. That is enough for Ela's 30-student song at least once in every race, and Doruk reaches the 40+ rage when he saves up.
+The student rate (5 per stop, 6 stops per lap) belongs to the track and is not in that file. In test races with bots, a bus picks up about 35–60 students in 3 laps and 75–120 in 6 laps. That is enough for Ela's 30-student song at least once in every race, and Doruk reaches the 40+ rage when he saves up.
 
-## Tyres and pit stops
+## Smooth play on slower computers
 
-- Tyres wear out as you race: about a fifth of a set per lap, more if you drift, brake hard, hit walls or leave the road. Worn tyres grip less.
-- The **TYRES** gauge turns yellow, then red. Below 12% a tyre can burst at any moment, and at 0% it always does.
-- The pit lane is on the **left, right after the car park**. Keep to the 80 km/h limiter and stop in the box with your bus number. The crew changes all four tyres in 2.6 seconds.
-- A bite from Ali makes your next stop 2 s longer. If you never stop again, the 2 s are added to your finish time.
+- The game watches its own frame rate while you race. When a computer can't keep up, it first draws the picture at a slightly lower resolution; if that is still not enough, it switches to simpler shadows, then to none. It sharpens the picture again when there is room.
+- **Graphics** in the pause menu sets the best quality the game may use. **Low** also turns off edge smoothing (after reloading the page), which helps most on weak graphics chips.
+- Computers where the browser has no working graphics chip start on the lowest settings.
+- Everything an ability shows is prepared while the game loads, so the first use of a power doesn't freeze the race for a moment.
 
 ## Buses
 

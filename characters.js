@@ -124,7 +124,7 @@ const CHARACTERS = [
     },
     passive2: {
       key: 'aura', name: 'Happy aura', baseSpeed: -0.02,
-      desc: (p) => `Nothing from the other drivers' powers touches you, good or bad: no reversed controls, stuns, coffee, burn, cinnamon rolls, forced pit stops or rain. Normal crashes and the track surface still count. To balance this, your top speed is ${pct(p.baseSpeed)} lower.`,
+      desc: (p) => `Nothing from the other drivers' powers touches you, good or bad: no reversed controls, stuns, coffee, burn, cinnamon rolls, Ali's forced stop or rain. Normal crashes and the track surface still count. To balance this, your top speed is ${pct(p.baseSpeed)} lower.`,
     },
     ability: {
       key: 'speedUp', name: 'Permanent speed', cost: 10, bonus: 0.02, maxUses: 3,
@@ -160,11 +160,11 @@ const CHARACTERS = [
       key: 'sweetCrisis', name: 'Sweet crisis', cost: 'meter', minMeter: 25,
       low: { bonus: 0.10, time: 4 },
       mid: { from: 50, checkTime: 1.2, slow: 0.15, slowTime: 2, botPass: 0.5 },
-      full: { from: 100, seekTime: 8, biteTime: 1.5, bonus: 0.18, bonusTime: 4, pitPenalty: 2 },
+      full: { from: 100, seekTime: 8, biteTime: 1.5, bonus: 0.18, bonusTime: 4, stopPenalty: 2 },
       desc: (a) => `Needs at least ${a.minMeter}% and empties the whole meter. ` +
         `${a.minMeter}–${a.mid.from - 1}%: +${pct(a.low.bonus)} speed for ${sec(a.low.time)}. ` +
         `${a.mid.from}–${a.full.from - 1}%: every other driver gets a ${sec(a.mid.checkTime)} reaction check; whoever fails is ${pct(a.mid.slow)} slower for ${sec(a.mid.slowTime)}. ` +
-        `${a.full.from}%: for ${sec(a.full.seekTime)} you hunt: the first rival you crash into is bitten for ${sec(a.full.biteTime)} (neither of you can move), then you get +${pct(a.full.bonus)} for ${sec(a.full.bonusTime)} and they must wait ${sec(a.full.pitPenalty)} longer at their next pit stop (if they never stop again, it is added to their finish time). No target in time means no refund.`,
+        `${a.full.from}%: for ${sec(a.full.seekTime)} you hunt: the first rival you crash into is bitten for ${sec(a.full.biteTime)} (neither of you can move), then you get +${pct(a.full.bonus)} for ${sec(a.full.bonusTime)}, and they must stop for ${sec(a.full.stopPenalty)} the next time they cross the start/finish line (while they wait they are a ghost nobody can hit; at the finish the ${sec(a.full.stopPenalty)} are added to their race time). No target in time means no refund.`,
     },
   },
   {

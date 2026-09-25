@@ -372,22 +372,6 @@ table.cls{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;
 .trow.hum .n::after{content:' \25CF';color:#fff;font-size:10px;vertical-align:middle}
 @media (max-width:520px){.on-body{padding:6px 14px 4px}.on-drv{width:40px;height:40px}.on-players{grid-template-columns:1fr}}
 
-/* ---------- tyres + pit ---------- */
-.tyres{display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center;width:250px;box-sizing:border-box;background:var(--panel);padding:6px 12px;font-family:var(--display);font-style:italic;font-weight:800;font-size:12px;letter-spacing:.12em;color:var(--ink-2)}
-.tyres b{font-size:14px;color:var(--ink);font-variant-numeric:tabular-nums;min-width:4ch;text-align:right;letter-spacing:.02em}
-.tyre-bar{height:10px;background:rgba(255,255,255,.1);transform:skewX(-20deg);overflow:hidden}
-.tyre-bar i{display:block;height:100%;width:100%;background:var(--green)}
-.tyres.mid .tyre-bar i{background:var(--yellow)}
-.tyres.low .tyre-bar i,.tyres.blown .tyre-bar i{background:var(--red)}
-.tyres.low b,.tyres.blown b{color:#ff6b5e;animation:blink .6s steps(2) infinite}
-#pitBox{position:absolute;left:50%;top:38%;transform:translateX(-50%);background:var(--panel);padding:12px 18px;min-width:240px;box-sizing:border-box;text-align:center;font-family:var(--display);font-style:italic}
-#pitBox b{display:block;font-weight:900;font-size:24px;letter-spacing:.06em;margin-bottom:8px}
-.pit-bar{height:12px;background:rgba(255,255,255,.12);transform:skewX(-20deg);overflow:hidden}
-.pit-bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--yellow),var(--green))}
-#pitLim{position:absolute;left:50%;top:calc(max(16px,env(safe-area-inset-top,0px)) + 70px);transform:translateX(-50%);background:var(--yellow);color:#111;font-family:var(--display);font-style:italic;font-weight:900;padding:4px 14px;letter-spacing:.06em;white-space:nowrap}
-@media (max-width:760px){.tyres{width:200px}}
-@media (max-width:639px){body.touch .tyres{width:160px}}
-@media (prefers-reduced-motion:reduce){.tyres.low b,.tyres.blown b{animation:none}}
 @media (max-width:760px){
   .sel{grid-template-columns:1fr;gap:12px}
   .sel-desc{display:none}
@@ -464,7 +448,6 @@ body.touch .dash{bottom:auto;top:calc(max(16px,env(safe-area-inset-top,0px)) + 1
         <div class="abil-bar"><i id="hAbFill"></i></div>
         <div class="abil-hint" id="hAbHint">Pick up students at the bus stops</div>
       </div>
-      <div class="tyres" id="tyreBox"><span>TYRES</span><div class="tyre-bar"><i id="hTyre"></i></div><b id="hTyrePct">100%</b></div>
     </div>
     <div class="lights" id="lights" hidden><i></i><i></i><i></i><i></i><i></i></div>
     <div class="intro" id="intro" hidden>
@@ -483,8 +466,6 @@ body.touch .dash{bottom:auto;top:calc(max(16px,env(safe-area-inset-top,0px)) + 1
     <div id="revWarn" hidden><b>&#8644; REVERSED CONTROLS</b><span>You are inside Volkan's marginal field</span></div>
     <div id="quizCard" hidden><div class="eyebrow">FizikCan &middot; math question</div><b id="qzText">7 &times; 8 = ?</b><div class="qz-opts"><span id="qzL"></span><span id="qzR"></span></div><small id="qzHint"></small></div>
     <div id="checkCard" hidden><div class="eyebrow">Ali's sweet crisis &middot; reaction check</div><div class="chk-bar"><i id="chkZone"></i><u id="chkMark"></u></div><b id="chkMsg">Press SHIFT when the marker is in the green</b></div>
-    <div id="pitLim" hidden>PIT LIMITER &middot; <span id="pitLimTxt">80 km/h</span></div>
-    <div id="pitBox" hidden><b>TYRE CHANGE</b><div class="pit-bar"><i id="hPitBar"></i></div></div>
     <div class="hint" id="hint"><kbd>↑</kbd> gas <kbd>↓</kbd> brake <kbd>←</kbd><kbd>→</kbd> steer <kbd>Space</kbd> drift <kbd>Shift</kbd> ability <kbd>H</kbd> horn <kbd>C</kbd> camera <kbd>R</kbd> reset <kbd>P</kbd> pause</div>
   </div>
 
@@ -626,7 +607,7 @@ body.touch .dash{bottom:auto;top:calc(max(16px,env(safe-area-inset-top,0px)) + 1
 
   <section id="scrPause" class="screen scrim-full" hidden>
     <div class="sheet" style="max-width:520px">
-      <div class="sheet-head"><div><div class="eyebrow">Race paused</div><h2>Pit wall</h2></div></div>
+      <div class="sheet-head"><div><div class="eyebrow">Race paused</div><h2>Race control</h2></div></div>
       <div class="pause-list">
         <button class="btn primary" id="btnResume">Resume</button>
         <button class="btn" id="btnRestart">Restart race</button>
@@ -656,7 +637,7 @@ body.touch .dash{bottom:auto;top:calc(max(16px,env(safe-area-inset-top,0px)) + 1
       </div>
       <div class="table-wrap">
         <table class="cls">
-          <thead><tr><th>Pos</th><th>Bus</th><th>Time</th><th>Best lap</th><th>Pit stops</th><th>Students</th></tr></thead>
+          <thead><tr><th>Pos</th><th>Bus</th><th>Time</th><th>Best lap</th><th>Students</th></tr></thead>
           <tbody id="rBody"></tbody>
         </table>
       </div>
