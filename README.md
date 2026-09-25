@@ -41,9 +41,10 @@ Up to 6 friends can race together, each on their own phone or computer.
 
 Every ability works between players too: stuns, slowdowns, rain, Volkan's field, Ali's reaction check and bite, and Ada's leprechaun all reach your friends' screens. When the race is over, the host takes everybody back to the lobby for the next one.
 
-- It needs an internet connection. The devices connect directly to each other with [PeerJS](https://peerjs.com/): free, no accounts.
+- It needs an internet connection. Devices first try to connect directly to each other with [PeerJS](https://peerjs.com/): free, no accounts.
+- Many school and office Wi-Fis block direct connections. Then the game switches by itself to a **backup connection**, a free public relay on port 443 (the same port as normal websites). It is a little slower, but players on the backup connection and players connected directly can race in the same room. The lobby shows who uses which.
+- If even the backup connection is blocked, use mobile data or a phone hotspot.
 - The host runs the bots, so the host should keep the game open on screen.
-- If a friend can't join, some school or office networks block direct connections: try another Wi-Fi or mobile data.
 - If a player leaves in the middle of a race, a bot takes over their bus.
 
 ## Rules for all abilities
@@ -147,4 +148,4 @@ Each bus has its own top speed, acceleration, handling and weight.
 | `game.js` | The game: track, buses, physics, bots, abilities, online races, sound |
 | `photos.js` | The driver portraits |
 
-The 3D graphics use [three.js](https://threejs.org/) r128 and online races use [PeerJS](https://peerjs.com/) 1.5, both loaded from cdnjs. Every sound, including Ela's song, is generated in the browser with the Web Audio API.
+The 3D graphics use [three.js](https://threejs.org/) r128 and online races use [PeerJS](https://peerjs.com/) 1.5, both loaded from cdnjs. The backup connection uses the [Eclipse Paho](https://eclipse.dev/paho/) MQTT client with the free public brokers of shiftr.io (port 443) and HiveMQ. Every sound, including Ela's song, is generated in the browser with the Web Audio API.
