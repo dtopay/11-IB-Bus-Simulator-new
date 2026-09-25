@@ -22,13 +22,17 @@ const RULES = {
 };
 
 /* ---------- TYRES AND PIT STOPS (switched on or off before every race) ----------
-   Three compounds like in Formula 1. life: laps a new set lasts before it is worn
-   out (the same on every circuit). pace: top speed on a fresh set. grip: cornering
-   grip on a fresh set. In the pit lane the game drives and the crew changes the tyres. */
+   Five compounds like in Formula 1: three slicks for a dry track and two for the
+   rain. life: laps a new set lasts before it is worn out (the same on every
+   circuit). pace: top speed on a fresh set. grip: cornering grip on a fresh set.
+   wet: the track wetness a rain tyre is made for (0 dry, 1 soaked).
+   In the pit lane the game drives and the crew changes the tyres. */
 const TYRES = {
   S: { name: 'Soft', color: '#ff3b30', life: 2.5, pace: 0.025, grip: 0.07 },
   M: { name: 'Medium', color: '#ffd12a', life: 4.5, pace: 0, grip: 0 },
   H: { name: 'Hard', color: '#f4f4f4', life: 7.5, pace: -0.03, grip: -0.05 },
+  I: { name: 'Intermediate', color: '#2fbf5a', life: 3.5, pace: -0.02, grip: 0, wet: 0.45 },
+  W: { name: 'Wet', color: '#2f7bff', life: 4.5, pace: -0.04, grip: 0.02, wet: 0.9 },
   fade: 0.02,        // a set gets up to this much slower as it wears
   cliff: 20,         // below this % left, a set falls off the cliff...
   cliffPace: -0.12,  // ...and at 0 % it is this much slower
@@ -37,6 +41,23 @@ const TYRES = {
   pitTime: 2.6,      // seconds in the box while the crew changes all four tyres
   pitSpeed: 22,      // pit lane speed limit in m/s (80 km/h)
   maxStops: 3,
+};
+
+/* ---------- WEATHER (dry, rain or changing, picked before every race) ----------
+   Track wetness goes from 0 (dry) to 1 (soaked). While it rains the track gets
+   wet, when the rain stops it dries slowly. */
+const WEATHER = {
+  damp: 0.3,         // from this wetness the track counts as damp (intermediates)...
+  soaked: 0.72,      // ...and from this as wet (full wet tyres)
+  gripLoss: 0.25,    // a soaked track has this much less grip for everybody
+  speedLoss: 0.04,   // and everybody drives a little slower (spray, puddles)
+  slickGrip: -0.7,   // slick tyres on a soaked track: grip change (less when damp)
+  slickPace: -0.1,   // ...and speed change
+  tooDry: -0.08,     // rain tyres on a drier track than they are made for: speed change per unit of wetness
+  tooWet: -0.35,     // intermediates on a wetter track than they are made for: grip change
+  overheat: 4,       // rain tyres wear up to this much faster on a dry track
+  wetting: 0.08,     // how fast the track gets wet in the rain...
+  drying: 0.015,     // ...and dries when it stops (share per second)
 };
 
 const pct = (x) => (Math.round(Math.abs(x) * 1000) / 10) + '%';
@@ -142,7 +163,7 @@ const CHARACTERS = [
     },
     passive2: {
       key: 'aura', name: 'Happy aura', baseSpeed: -0.02,
-      desc: (p) => `Nothing from the other drivers' powers touches you, good or bad: no reversed controls, stuns, coffee, burn, cinnamon rolls, Ali's forced stop or rain. Normal crashes and the track surface still count. To balance this, your top speed is ${pct(p.baseSpeed)} lower.`,
+      desc: (p) => `Nothing from the other drivers' powers touches you, good or bad: no reversed controls, stuns, coffee, burn, cinnamon rolls, Ali's forced stop or Ataberk's rain. Normal crashes, the weather and the track surface still count. To balance this, your top speed is ${pct(p.baseSpeed)} lower.`,
     },
     ability: {
       key: 'speedUp', name: 'Permanent speed', cost: 10, bonus: 0.02, maxUses: 3,

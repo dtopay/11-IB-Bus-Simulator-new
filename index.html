@@ -146,7 +146,15 @@ button:focus-visible,.seg button:focus-visible{outline:3px solid var(--yellow);o
 .st-bar i b{color:var(--tc);font:900 14px/1 var(--display)}
 .st-life,.st-est{margin:0;font-size:13px;line-height:1.5;color:var(--ink-2)}
 .st-best{appearance:none;cursor:pointer;border:1px solid var(--line);background:transparent;color:var(--ink);padding:4px 10px;font:800 12px/1.2 var(--display);text-transform:uppercase;letter-spacing:.06em;margin-left:4px}
-@media (max-width:760px){.tyres{width:200px}.tyres .tplan{font-size:10px}}
+.wxbox{display:grid;grid-template-columns:auto 1fr;gap:8px;align-items:center;width:250px;box-sizing:border-box;background:var(--panel);padding:5px 12px;font-family:var(--display);font-style:italic}
+.wxbox b{font-weight:900;font-size:12px;letter-spacing:.08em;color:#9fd6ff;white-space:nowrap}
+.wx-bar{height:8px;background:rgba(255,255,255,.1);transform:skewX(-20deg);overflow:hidden}
+.wx-bar i{display:block;height:100%;width:0;background:#6fb7ff}
+.wxbox.dry b{color:var(--ink-2)}.wxbox.wet .wx-bar i{background:#2f7bff}
+.st-fc{display:flex;gap:2px;flex:1;min-width:200px}
+.st-fc i{flex:1;height:22px;display:grid;place-items:center;font:normal 800 10px/1 var(--display);color:rgba(0,0,0,.6)}
+.st-fc .fc-dry{background:#e8e2c8}.st-fc .fc-damp{background:#7fd0b0}.st-fc .fc-wet{background:#4f8fe8;color:#fff}
+@media (max-width:760px){.tyres{width:200px}.tyres .tplan{font-size:10px}.wxbox{width:200px}}
 @media (max-width:639px){body.touch .tyres{width:164px}}
 @media (prefers-reduced-motion:reduce){.tyres.low b,.tyres.box .tplan{animation:none}}
 .sel-nav{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
@@ -491,6 +499,7 @@ body.touch .dash{bottom:auto;top:calc(max(16px,env(safe-area-inset-top,0px)) + 1
         <div class="abil-bar"><i id="hAbFill"></i></div>
         <div class="abil-hint" id="hAbHint">Pick up students at the bus stops</div>
       </div>
+      <div class="wxbox" id="wxBox" hidden><b id="hWxTxt">TRACK DRY</b><div class="wx-bar"><i id="hWxBar"></i></div></div>
       <div class="tyres" id="tyreBox" hidden><i class="tc" id="hTc">M</i><div class="tyre-bar"><i id="hTyre"></i></div><b id="hTyrePct">100%</b><small class="tplan" id="hTplan"></small></div>
     </div>
     <div id="pitBox" hidden><b>PIT STOP</b><small id="hPitTxt"></small><div class="pit-bar"><i id="hPitBar"></i></div></div>
@@ -609,6 +618,7 @@ body.touch .dash{bottom:auto;top:calc(max(16px,env(safe-area-inset-top,0px)) + 1
           <div class="opt"><span>Rivals</span><div class="seg" id="optDiff"><button id="dif0" data-v="0">Easy</button><button id="dif1" data-v="1">Normal</button><button id="dif2" data-v="2">Hard</button></div></div>
           <div class="opt opt-track"><span>Track</span><div class="seg seg-track" id="optTrack"></div></div>
           <div class="opt"><span>Tyres &amp; pits</span><div class="seg" id="optTyres"><button data-v="1">On</button><button data-v="0">Off</button></div></div>
+          <div class="opt"><span>Weather</span><div class="seg" id="optWeather"><button data-v="dry">Dry</button><button data-v="rain">Rain</button><button data-v="changing">Changing</button></div></div>
         </div>
         <p class="sel-track" id="sTrack"></p>
         <p class="sel-pb" id="sPB"></p>
@@ -624,7 +634,7 @@ body.touch .dash{bottom:auto;top:calc(max(16px,env(safe-area-inset-top,0px)) + 1
     <div class="sheet strat-sheet">
       <div class="sheet-head">
         <div><div class="eyebrow">Before the race</div><h2>Tyre strategy</h2></div>
-        <span class="tab" id="stTrack">3 laps</span>
+        <span class="tab" id="stTrack" lang="tr">3 laps</span>
       </div>
       <div class="strat-body">
         <p class="st-pit" id="stPit"></p>
@@ -657,6 +667,7 @@ body.touch .dash{bottom:auto;top:calc(max(16px,env(safe-area-inset-top,0px)) + 1
           <div class="opts" id="onHostOpts">
             <div class="opt opt-track"><span>Track</span><div class="seg seg-track" id="onTrack"></div></div>
             <div class="opt"><span>Tyres &amp; pits</span><div class="seg" id="onTyres"><button data-v="1">On</button><button data-v="0">Off</button></div></div>
+            <div class="opt"><span>Weather</span><div class="seg" id="onWeather"><button data-v="dry">Dry</button><button data-v="rain">Rain</button><button data-v="changing">Changing</button></div></div>
             <div class="opt"><span>Laps</span><div class="seg" id="onLaps"><button data-v="3">3</button><button data-v="6">6</button><button data-v="10">10</button></div></div>
             <div class="opt"><span>Bots</span><div class="seg" id="onDiff"><button data-v="0">Easy</button><button data-v="1">Normal</button><button data-v="2">Hard</button></div></div>
           </div>
@@ -691,7 +702,7 @@ body.touch .dash{bottom:auto;top:calc(max(16px,env(safe-area-inset-top,0px)) + 1
     <div class="sheet">
       <div class="sheet-head">
         <div><div class="eyebrow" id="rEyebrow">Anka Bilim Grand Prix &middot; Classification</div><h2 id="rTitle">Chequered flag</h2></div>
-        <span class="tab" id="rLaps">3 laps</span>
+        <span class="tab" id="rLaps" lang="tr">3 laps</span>
       </div>
       <div class="res-summary">
         <div class="big" id="rBig">P1</div>

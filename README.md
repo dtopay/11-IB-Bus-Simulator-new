@@ -53,6 +53,8 @@ Switch **Tyres & pits** on or off on the bus screen (online, the host decides). 
 | **Soft** | red | 2.5 laps | fastest |
 | **Medium** | yellow | 4.5 laps | in between |
 | **Hard** | white | 7.5 laps | slowest |
+| **Intermediate** | green | 3.5 laps | best on a damp track |
+| **Wet** | blue | 4.5 laps | best on a soaked track |
 
 - Tyres get a little slower as they wear. Below 20% they fall off a cliff and the bus gets much slower (they never burst).
 - **Before every race you set your strategy:** the set you start on, how many pit stops (up to 3), after which lap and which set to fit at each. The screen shows your stints as a bar, how long each compound lasts and how your plan compares with the fastest one the game can find (one click uses it). Online, everybody sets their own plan in the lobby.
@@ -60,6 +62,17 @@ Switch **Tyres & pits** on or off on the bus screen (online, the host decides). 
 - Every circuit has its own pit lane: Anka Bilim on the left before the line, Eymir Lake and Atakule on the right just after it, Esenboğa Airport on the left of the runway before the line.
 - The bots pick their own strategies from the faster plans; hard bots pick the best ones.
 - Ali's bite costs the rival 2 extra seconds in the box at their next pit stop (at the finish, if they don't stop again).
+
+## Weather
+
+Pick the weather on the bus screen (online, the host picks it): **Dry**, **Rain** (it rains all race, lighter or harder) or **Changing** (the rain comes during the race, or a wet track dries out).
+
+- While it rains the track gets wet; when the rain stops it dries slowly. A wet track has less grip for everybody. The asphalt turns dark and shiny, the buses throw up spray and you can't see as far.
+- The two rain tyres work like in F1: **intermediates** for a damp track, **wets** for a soaked one. Slicks slide on a wet track. Rain tyres are slow on a dry track and wear out fast there.
+- The strategy screen shows the forecast lap by lap (dry, damp or wet), and the fastest plan takes it into account.
+- If the weather turns, the game tells you ("Box for intermediates?") and at your next stop the crew fits the right set for the track. The bots react to the weather too, each a little earlier or later.
+- The HUD shows when it rains and how wet the track is. Online, everybody gets the same forecast.
+- With tyres and pit stops off, the rain still makes the track slippery for everybody.
 
 ## Online races with friends
 
@@ -124,7 +137,7 @@ Every ability works between players too: stuns, slowdowns, rain, Volkan's field,
 ### SarpDBastırma (Sarp Bayar)
 
 - **Passive 1: Brainrot windows.** Small silly pop-up windows flash at the edge of your screen every 17 s for up to 0.8 s. They never cover the road. Every use of your ability makes them 3 s more frequent (at most every 8 s).
-- **Passive 2: Happy aura.** Nothing from the other drivers' powers touches you, good or bad: no reversed controls, stuns, coffee, burn, cinnamon rolls, Ali's forced stop or rain. Normal crashes and the track surface still count. To balance this, your top speed is 2% lower.
+- **Passive 2: Happy aura.** Nothing from the other drivers' powers touches you, good or bad: no reversed controls, stuns, coffee, burn, cinnamon rolls, Ali's forced stop or Ataberk's rain. Normal crashes, the weather and the track surface still count. To balance this, your top speed is 2% lower.
 - **Ability: Permanent speed** (10 students). +2% top speed until the finish, every time you use it. Up to 3 times (+6%), so you end up 4% faster than normal.
 
 ### CinnamonRoll (Ela Üstündağ)
@@ -147,7 +160,7 @@ Every ability works between players too: stuns, slowdowns, rain, Volkan's field,
 
 ## Changing the numbers
 
-Every balance number for the nine drivers is in **`characters.js`**: costs, percentages, durations, chances, ranges and the common limits in `RULES`. The tyre compounds and pit stops are in the same file (`TYRES`: how long each compound lasts, its pace and grip, the cliff, the time in the box and the pit lane speed). Change a value, save, and reload the page. The texts on the driver screen are built from the same numbers, so they stay correct.
+Every balance number for the nine drivers is in **`characters.js`**: costs, percentages, durations, chances, ranges and the common limits in `RULES`. The tyre compounds and pit stops are in the same file (`TYRES`: how long each compound lasts, its pace and grip, the cliff, the time in the box and the pit lane speed), and so is the weather (`WEATHER`: when the track counts as damp or wet, how much grip the rain takes away, how fast the track gets wet and dries). Change a value, save, and reload the page. The texts on the driver screen are built from the same numbers, so they stay correct.
 
 The student rate (5 per stop, 6 stops per lap) belongs to the track and is not in that file. In test races with bots, a bus picks up about 35–60 students in 3 laps and 75–120 in 6 laps. That is enough for Ela's 30-student song at least once in every race, and Doruk reaches the 40+ rage when he saves up.
 
