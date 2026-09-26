@@ -376,25 +376,38 @@ const TRACKS = [
 let TDEF = TRACKS[0];   // the circuit that is built right now
 const trackById = (id) => TRACKS.find((t) => t.id === id) || TRACKS[0];
 
-// ---------- the nine drivers: every number and text comes from characters.js ----------
+// ---------- the drivers: every number and text comes from characters.js ----------
 const DRIVERS = CHARACTERS.map((c) => Object.assign({ photo: PHOTOS[c.id] || '' }, c));
+// bots only drive the drivers that allow it (Sarp is players-only)
+const botDriver = (d) => !d.noBot;
 // texts for the driver screen, built from the numbers in the settings file
+function abilityCost(a) {
+  if (a.cost === 'all') return 'all your students';
+  if (a.cost === 'meter') return '100% satiety';
+  if (a.key === 'like') return a.cost + ' students per like';
+  return a.cost + ' students';
+}
 function drvText(d) {
   const t = (part) => (typeof part.desc === 'function' ? part.desc(part, d) : part.desc || '');
   const a = d.ability;
-  const cost = a.cost === 'all' ? 'all your students' : a.cost === 'meter' ? a.minMeter + '%+ sweet meter' : a.cost + ' students';
   return {
     p1: { name: d.passive1.name, desc: t(d.passive1) },
     p2: { name: d.passive2.name, desc: t(d.passive2) },
-    ab: { name: a.name, cost, desc: t(a) },
+    ab: { name: a.name, cost: abilityCost(a), desc: t(a) },
   };
 }
-// Ali has no photo yet: draw a cartoon portrait (a donut with a big grin)
-function makeAvatar(d) {
+// drivers without a photo get a cartoon portrait
+function avatarCanvas(top, bottom, label) {
   const c = cv(256, 256), g = c.getContext('2d');
-  const bg = g.createLinearGradient(0, 0, 0, 256); bg.addColorStop(0, '#b98cff'); bg.addColorStop(1, '#5b2aa8');
+  const bg = g.createLinearGradient(0, 0, 0, 256); bg.addColorStop(0, top); bg.addColorStop(1, bottom);
   g.fillStyle = bg; g.fillRect(0, 0, 256, 256);
   for (let i = 0; i < 26; i++) { g.fillStyle = `rgba(255,255,255,${rr(0.05, 0.14).toFixed(2)})`; g.beginPath(); g.arc(rr(0, 256), rr(0, 256), rr(3, 10), 0, 7); g.fill(); }
+  return { c, g, label };
+}
+// the name is written next to the picture everywhere it is shown, so the portrait itself has none
+function avatarLabel(A) { return A.c.toDataURL('image/png'); }
+// Ali: a donut with a big grin
+function drawDonut(g) {
   g.fillStyle = '#e6a55a'; g.beginPath(); g.arc(128, 118, 84, 0, 7); g.fill();
   g.fillStyle = '#ff7ab6'; g.beginPath();
   for (let i = 0; i <= 24; i++) { const a = i / 24 * Math.PI * 2, r = 74 + Math.sin(i * 2.3) * 7; g.lineTo(128 + Math.cos(a) * r, 118 + Math.sin(a) * r); }
@@ -405,12 +418,66 @@ function makeAvatar(d) {
   g.fillStyle = '#1b1030'; for (const x of [98, 158]) { g.beginPath(); g.ellipse(x, 96, 9, 12, 0, 0, 7); g.fill(); }
   g.fillStyle = '#ffffff'; for (const x of [101, 161]) { g.beginPath(); g.arc(x, 92, 3.5, 0, 7); g.fill(); }
   g.strokeStyle = '#1b1030'; g.lineWidth = 7; g.lineCap = 'round'; g.beginPath(); g.arc(128, 150, 28, 0.15 * Math.PI, 0.85 * Math.PI); g.stroke();
-  g.fillStyle = '#ffffff'; g.font = `italic 900 46px ${FONT_D}`; g.textAlign = 'center'; g.textBaseline = 'middle';
-  g.lineWidth = 8; g.strokeStyle = 'rgba(40,10,80,.8)'; g.strokeText(d.name.toUpperCase(), 128, 226); g.fillText(d.name.toUpperCase(), 128, 226);
-  return c.toDataURL('image/png');
 }
-function ensurePhotos() { DRIVERS.forEach((d) => { if (!d.photo) d.photo = makeAvatar(d); }); }
-const PHYSICS_TERMS = ['E = mc²', 'F = m·a', 'Δv / Δt', 'p = m·v', 'λ = h / p', 'π = 3.14159', '∫ f(x) dx', '√2', 'Σ F = 0', '∞', 'g = 9.81 m/s²', 'W = F·d', 'sin²θ + cos²θ = 1', 'v = s / t', 'Eₖ = ½mv²', 'a² + b² = c²', 'ħ', 'PV = nRT', 'τ = r × F', 'f = 1 / T', 'c = 3·10⁸ m/s', 'dx/dt', 'e^{iπ} + 1 = 0', '∇·E = ρ/ε₀'];
+// ShangaiMath: a cheerful calculator in a cloud of maths
+function drawCalc(g) {
+  g.font = `italic 900 30px ${FONT_D}`; g.textAlign = 'center'; g.textBaseline = 'middle';
+  ['π', '√2', 'Σ', 'x²', '÷', '∞', '7×8', '%'].forEach((s, i) => { const a = i / 8 * Math.PI * 2; g.fillStyle = 'rgba(255,255,255,.55)'; g.fillText(s, 128 + Math.cos(a) * 100, 112 + Math.sin(a) * 84); });
+  g.fillStyle = '#1b2a4a'; rrect(g, 70, 44, 116, 146, 16); g.fill();
+  g.fillStyle = '#bfe3a8'; rrect(g, 82, 56, 92, 40, 8); g.fill();
+  g.fillStyle = '#1b2a4a'; g.font = `900 30px ${FONT_D}`; g.fillText('π = 3.14', 128, 77);
+  for (let r = 0; r < 3; r++) for (let k = 0; k < 3; k++) { g.fillStyle = k === 2 ? '#ff8a1a' : '#e8ecf2'; rrect(g, 84 + k * 30, 106 + r * 26, 24, 20, 5); g.fill(); }
+  g.fillStyle = '#ffffff'; for (const x of [104, 152]) { g.beginPath(); g.arc(x, 40, 13, 0, 7); g.fill(); }
+  g.fillStyle = '#111'; for (const x of [107, 155]) { g.beginPath(); g.arc(x, 42, 6, 0, 7); g.fill(); }
+}
+// Saner: a cracked brick wall with a crash star
+function drawWall(g) {
+  for (let r = 0; r < 6; r++) for (let k = -1; k < 6; k++) { g.fillStyle = (r + k) % 3 ? '#b8452e' : '#9c3622'; g.fillRect(k * 48 + (r % 2) * 24 + 2, 20 + r * 30 + 2, 44, 26); }
+  g.fillStyle = '#ffe14a'; starPath(g, 128, 108, 78, 38, -Math.PI / 2); g.fill();
+  g.strokeStyle = '#8a1a00'; g.lineWidth = 6; g.stroke();
+  g.fillStyle = '#e10600'; g.font = `italic 900 52px ${FONT_D}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('BAM!', 128, 110);
+}
+// the Ghostly Sisters: two friendly ghosts (Zeynep icy, Elif dark)
+function drawGhost(g, x, y, s, body, eye, mark) {
+  g.save(); g.translate(x, y); g.scale(s, s);
+  g.fillStyle = body; g.beginPath(); g.moveTo(-50, 40); g.lineTo(-50, -10); g.arc(0, -10, 50, Math.PI, 0); g.lineTo(50, 40);
+  for (let i = 0; i < 4; i++) g.quadraticCurveTo(38 - i * 25, 58, 25 - i * 25, 40);
+  g.closePath(); g.fill();
+  g.fillStyle = eye; for (const ex of [-18, 18]) { g.beginPath(); g.ellipse(ex, -12, 9, 13, 0, 0, 7); g.fill(); }
+  g.fillStyle = '#ffffff'; for (const ex of [-15, 21]) { g.beginPath(); g.arc(ex, -16, 3.5, 0, 7); g.fill(); }
+  g.strokeStyle = eye; g.lineWidth = 4; g.lineCap = 'round'; g.beginPath(); g.arc(0, 8, 12, 0.2 * Math.PI, 0.8 * Math.PI); g.stroke();
+  g.fillStyle = 'rgba(255,120,160,.45)'; for (const ex of [-30, 30]) { g.beginPath(); g.ellipse(ex, 4, 8, 5, 0, 0, 7); g.fill(); }
+  if (mark === 'snow') { g.strokeStyle = '#ffffff'; g.lineWidth = 3; for (let i = 0; i < 3; i++) { const a = i * Math.PI / 3; g.beginPath(); g.moveTo(-Math.cos(a) * 12, -46 - Math.sin(a) * 12); g.lineTo(Math.cos(a) * 12, -46 + Math.sin(a) * 12); g.stroke(); } }
+  if (mark === 'moon') { g.fillStyle = '#ffe9a8'; g.beginPath(); g.arc(0, -48, 11, 0, 7); g.fill(); g.fillStyle = body; g.beginPath(); g.arc(6, -52, 10, 0, 7); g.fill(); }
+  g.restore();
+}
+function sisterAvatar(which) {
+  const z = which === 'zeynep';
+  const A = avatarCanvas(z ? '#bff3ff' : '#6d4bb8', z ? '#2f7fb8' : '#1b1030', z ? 'ZEYNEP' : 'ELIF');
+  drawGhost(A.g, 128, 132, 1.6, z ? '#eafcff' : '#3b2a5c', z ? '#1d4f7a' : '#ffe9a8', z ? 'snow' : 'moon');
+  return avatarLabel(A);
+}
+function makeAvatar(d) {
+  if (d.id === 'ali') { const A = avatarCanvas('#b98cff', '#5b2aa8', d.name.toUpperCase()); drawDonut(A.g); return avatarLabel(A); }
+  if (d.id === 'shangai') { const A = avatarCanvas('#6fa8ff', '#1d3f8f', 'SHANGAIMATH'); drawCalc(A.g); return avatarLabel(A); }
+  if (d.id === 'saner') { const A = avatarCanvas('#ff8a6a', '#7a0a00', d.name.toUpperCase()); drawWall(A.g); return avatarLabel(A); }
+  if (d.id === 'sisters') {
+    const A = avatarCanvas('#8fd8ff', '#2a1850', 'GHOSTLY SISTERS');
+    drawGhost(A.g, 84, 128, 1.15, '#eafcff', '#1d4f7a', 'snow'); drawGhost(A.g, 172, 134, 1.15, '#3b2a5c', '#ffe9a8', 'moon');
+    return avatarLabel(A);
+  }
+  // any other driver without a photo: their initials on their colour
+  const A = avatarCanvas(d.color || '#888', '#101318', d.nick.toUpperCase());
+  A.g.fillStyle = '#ffffff'; A.g.font = `italic 900 110px ${FONT_D}`; A.g.textAlign = 'center'; A.g.textBaseline = 'middle';
+  A.g.fillText(d.name.split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase(), 128, 110);
+  return avatarLabel(A);
+}
+const SISTER_PHOTO = {};
+function ensurePhotos() {
+  DRIVERS.forEach((d) => { if (!d.photo) d.photo = makeAvatar(d); });
+  SISTER_PHOTO.zeynep = sisterAvatar('zeynep'); SISTER_PHOTO.elif = sisterAvatar('elif');
+}
+const MATH_TERMS = ['π = 3.14159', '√2', 'a² + b² = c²', 'Σ n', '∫ f(x) dx', '7 × 8 = 56', 'x = −b ± √Δ', '∞', 'sin²θ + cos²θ = 1', 'e^{iπ} + 1 = 0', '1 + 1 = 2', 'log₁₀ 100 = 2', '12 ÷ 4 = 3', 'f(x) = 2x + 1', 'n! = n·(n−1)!', 'Δy / Δx', '0.999… = 1', '2³ = 8', '%', 'π r²', 'y = mx + c', '6 × 7 = 42', '√144 = 12', 'φ = 1.618'];
 const ri = (a, b) => Math.floor(rr(a, b + 1));
 const shuffle = (arr) => { for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; } return arr; };
 
@@ -1195,6 +1262,7 @@ function buildWorld(def) {
     buildCity();
     buildHorizon();
     buildGyms();
+    buildBarrierSpots();   // where Ali's sweet barriers may appear
   } finally { rnd = keep; }
 }
 // frees the GPU memory of the current world (geometry, materials, textures) and takes it out of the scene
@@ -1899,7 +1967,7 @@ class Bus {
     const st = this.st, sy = Math.sin(this.yaw), cy = Math.cos(this.yaw);
     const vf = this.vx * sy + this.vz * cy;
     this.fwd = vf;
-    // ability speed changes scale the top speed (and help the bus reach it); Ataberk ignores the off-road penalty
+    // ability speed changes scale the top speed (and help the bus reach it); Saner ignores the off-road penalty
     const offPen = this.off && !this.dirtProof;
     let vmax = Math.max(5, st.vmax * this.vmul * this.abilMul * (offPen ? 0.62 : 1)), acc = st.accel * Math.max(1, this.abilMul);
     this.boosting = this.tempBonus >= 0.06;
@@ -1929,9 +1997,11 @@ class Bus {
       const fdot = this.vx * sy + this.vz * cy;
       const tgt = fdot >= 0 ? this.yaw : this.yaw + Math.PI;
       const beta = wrapA(Math.atan2(this.vx, this.vz) - tgt);
-      // rain: less grip for everyone but Sarp, and the tail steps out whenever the bus turns
+      // rain: less grip for everyone but Sarp, and the tail steps out whenever the bus turns;
+      // Zeynep's ice and a bitten Wheel Bar take grip too (together never below a fifth of it)
       const wet = RAIN.t > 0 && !this.aura;
-      const grip = st.grip * (c.hb ? 0.16 : 1) * (this.off ? 0.7 : 1) * (1 + tf.grip) * (1 - WEATHER.gripLoss * WX.wet) * (wet ? (1 - RAIN.loss) * (Math.abs(c.steer) > 0.25 ? 0.55 : 1) : 1);
+      const pw = Math.max(0.2, (wet ? (1 - RAIN.loss) * (Math.abs(c.steer) > 0.25 ? 0.55 : 1) : 1) * abilGripMul(this));
+      const grip = st.grip * (c.hb ? 0.16 : 1) * (this.off ? 0.7 : 1) * (1 + tf.grip) * (1 - WEATHER.gripLoss * WX.wet) * pw;
       const nb = beta * Math.exp(-grip * dt);
       const ns = spd * (1 - Math.min(0.5, Math.abs(beta) * (c.hb ? 0.5 : 0.3) * dt));
       const na = tgt + nb;
@@ -1941,12 +2011,12 @@ class Bus {
     // steering
     const av = Math.abs(vf);
     const sf = Math.min(1, av / 5) * (1 - 0.5 * Math.min(1, av / st.vmax));
-    let yr = clamp(c.steer, -1, 1) * st.steer * sf * (c.hb ? 1.35 : 1) * (1 + tf.grip * 0.5) * (RAIN.t > 0 && !this.aura ? 1.12 : 1);
+    let yr = clamp(c.steer, -1, 1) * st.steer * sf * (c.hb ? 1.35 : 1) * (1 + tf.grip * 0.5) * (RAIN.t > 0 && !this.aura ? 1.12 : 1) * turnFactor(this, c);
     if (vf < 0) yr = -yr;
     this.yawRate = yr;
     this.yaw = wrapA(this.yaw - yr * dt);
     if (this.throwT > 0) throwStep(this, dt);
-    this.x += this.vx * dt; this.z += this.vz * dt;
+    this.x += (this.vx + (this.pullVx || 0)) * dt; this.z += (this.vz + (this.pullVz || 0)) * dt;   // pullV: Doruk's black hole
     if (!(isFinite(this.x) && isFinite(this.z) && isFinite(this.vx) && isFinite(this.vz) && isFinite(this.yaw))) { respawnBus(this); return; }
     this.constrain(dt);
   }
@@ -1965,10 +2035,10 @@ class Bus {
       const vn = this.vx * nx + this.vz * nz;
       if (vn > 0) {
         this.vx -= nx * vn * 1.3; this.vz -= nz * vn * 1.3;
-        const loss = 1 - Math.min(0.45, vn * 0.035);
-        this.vx *= loss; this.vz *= loss;
+        if (!this.wallProof) { const loss = 1 - Math.min(0.45, vn * 0.035); this.vx *= loss; this.vz *= loss; }   // Saner doesn't lose speed on a wall
         if (vn > 2) this.onImpact(vn);
       }
+      wallTouch(this, Math.max(0, vn));
       if (this.throwBy && (this.throwT > 0 || RACE.t - this.throwEnd < 0.35)) throwLanded(this);
       const along = this.vx * q.tx + this.vz * q.tz;
       this.yaw = lerpA(this.yaw, along >= 0 ? tyaw : tyaw + Math.PI, 1 - Math.exp(-(1.6 + Math.max(0, vn) * 0.5) * dt));
@@ -2008,6 +2078,13 @@ class Bus {
   }
 }
 const TAIL_ON = new THREE.Color(), TAIL_OFF = new THREE.Color(), LIM = { lo: 0, hi: 0 };
+// steering: drift mode (the same for everybody: weaker normal steering, stronger while drifting or sliding)
+// and the powers that change it (Saner running wild, Elif at the wheel)
+function turnFactor(b, c) {
+  let k = b.turnK || 1;
+  if (RACE.drift) { const dr = c.hb ? 1 : clamp((Math.abs(b.slip) - 0.1) / 0.15, 0, 1); k *= lerp(1 + DRIFT_MODE.steer, 1 + DRIFT_MODE.drift, dr); }
+  return k;
+}
 // ghost a bus that sits between the camera and the player (or on top of the camera)
 function setBusAlpha(b, a) {
   const m = b.m;
@@ -2050,18 +2127,31 @@ function collideBuses(A, B) {
   const vn = (A.vx - B.vx) * nx + (A.vz - B.vz) * nz;
   if (vn < 0) {
     const j = -(1.25) * vn / (1 / ma + 1 / mb);
+    // a stuffed Ali shoves the bus he hits harder (the walls still keep it on the circuit)
+    const push = 1 + CH.ali.passive2.fullPush, ja = j * (aliStuffed(B) ? push : 1), jb = j * (aliStuffed(A) ? push : 1);
     const rax = CP.ax - A.x, raz = CP.az - A.z, rbx = CP.bx - B.x, rbz = CP.bz - B.z;
-    if (!A.remote) { A.vx += j / ma * nx; A.vz += j / ma * nz; A.yaw -= clamp((rax * nz - raz * nx) * j * 0.004 / ma, -0.05, 0.05); }
-    if (!B.remote) { B.vx -= j / mb * nx; B.vz -= j / mb * nz; B.yaw += clamp((rbx * nz - rbz * nx) * j * 0.004 / mb, -0.05, 0.05); }
+    if (!A.remote) { A.vx += ja / ma * nx; A.vz += ja / ma * nz; A.yaw -= clamp((rax * nz - raz * nx) * j * 0.004 / ma, -0.05, 0.05); }
+    if (!B.remote) { B.vx -= jb / mb * nx; B.vz -= jb / mb * nz; B.yaw += clamp((rbx * nz - rbz * nx) * j * 0.004 / mb, -0.05, 0.05); }
     const hit = -vn;
     if (hit > 2.5 && (A.isPlayer || B.isPlayer)) { SFX.impact(Math.min(1, hit / 12)); camShake(Math.min(0.8, hit / 14)); if (Math.random() < 0.35) SFX.honkShort(); }
   }
   if (fresh && RACE.state === 'race') onCrash(A, B, fa, fb, sa, sb);
+  contactBite(A, B);   // a bus with Ali's sweet mark bites whoever it touches
 }
 
 // ---- AI drivers ----
 const TMP = {};
-function cornerSpeed(st, k) { return 0.85 * st.steer / (Math.abs(k) + 0.425 * st.steer / st.vmax); }
+function cornerSpeed(st, k, m) { const sv = st.steer * (m || 1); return 0.85 * sv / (Math.abs(k) + 0.425 * sv / st.vmax); }
+// bots slow down for the powers that make the road slippery or dark
+function aiHazard(b) {
+  if (b.aura) return 1;
+  let k = 1;
+  if (RAIN.t > 0) k *= 1 - RAIN.loss * 0.45;
+  if (ICE.t > 0 && ICE.owner !== b) k *= 1 - ICE.loss * 0.5;
+  if (DARK.t > 0 && DARK.owner !== b) k *= 0.93;
+  if (b.wheel < 100) k *= 1 - WHEEL_BAR.gripLoss * (1 - b.wheel / 100) * 0.5;
+  return k;
+}
 function aiDrive(b, dt, all) {
   const c = b.ctrl, ai = b.ai, st = b.st, T = TRACK;
   const s = b.q.s, v = Math.max(0, b.fwd);
@@ -2077,7 +2167,7 @@ function aiDrive(b, dt, all) {
       if (ahead > 12 && ahead < 120) {
         // students pay for abilities, so bots go for most stops (decided once per stop and lap)
         const dec = ai.stopDec || (ai.stopDec = {}), k = stp.s;
-        if (!dec[k] || dec[k].lap !== b.lap) dec[k] = { lap: b.lap, go: rnd() < ai.greed };
+        if (!dec[k] || dec[k].lap !== b.lap) dec[k] = { lap: b.lap, go: rnd() < (drvId(b) === 'ali' ? (b.pv.full ? 0.3 : 0.97) : ai.greed) };   // a stop feeds Ali
         if (dec[k].go) { lane = stp.lat; break; }
       }
     }
@@ -2101,15 +2191,16 @@ function aiDrive(b, dt, all) {
   const ang = Math.atan2(dx * -cy + dz * sy, dx * sy + dz * cy);
   let steer = clamp(ang * 2.5, -1, 1);
   // speed target from the curvature ahead
-  const skill = ai.skill * (1 + tyreFx(b).grip * 0.5) * (1 - WEATHER.gripLoss * WX.wet * 0.5);
+  const skill = ai.skill * (1 + tyreFx(b).grip * 0.5) * (1 - WEATHER.gripLoss * WX.wet * 0.5) * aiHazard(b), sk = aiSteerK(b);
+  const far = DARK.t > 0 && DARK.owner !== b && !b.aura ? 75 : 150;   // in Elif's darkness a bot sees only half as far ahead
   let target = st.vmax * 1.3;
-  for (let k = 4; k <= 150; k += 5) {
+  for (let k = 4; k <= far; k += 5) {
     const kk = Math.abs(T.curvAt(s + k));
     if (kk < 0.003) continue;
-    const vA = cornerSpeed(st, kk) * skill;
+    const vA = cornerSpeed(st, kk, sk) * skill;
     target = Math.min(target, Math.sqrt(vA * vA + 2 * 17 * k));
   }
-  target = Math.min(target, cornerSpeed(st, T.curvAt(s)) * skill + 1.5);
+  target = Math.min(target, cornerSpeed(st, T.curvAt(s), sk) * skill + 1.5);
   if (pl) target = Math.min(target, pl.cap);
   let thr = v < target - 0.5 ? 1 : (v < target + 1.5 ? 0.35 : 0);
   let brk = v > target + 2 ? clamp((v - target) / 6, 0.25, 1) : 0;
@@ -2143,11 +2234,12 @@ function respawnBus(b) {
 // =====================================================================
 const FACE_IMG = {}, FACE_TEX = {}, TAG_TEX = {};
 function loadFaces() {
-  return Promise.all(DRIVERS.map((d) => new Promise((res) => {
+  const list = DRIVERS.map((d) => [d.id, d.photo]).concat(Object.keys(SISTER_PHOTO).map((k) => ['sis_' + k, SISTER_PHOTO[k]]));
+  return Promise.all(list.map(([id, src]) => new Promise((res) => {
     const im = new Image();
-    im.onload = () => { FACE_IMG[d.id] = im; res(); };
+    im.onload = () => { FACE_IMG[id] = im; res(); };
     im.onerror = () => res();
-    im.src = d.photo;
+    im.src = src;
   })));
 }
 function faceTex(id) {
@@ -2173,7 +2265,7 @@ function tagTex(d) {
 }
 function setDriver(b, d) {
   b.driver = d;
-  const f = b.m.face.material; f.map = faceTex(d.id); f.needsUpdate = true;
+  const f = b.m.face.material; f.map = faceTex(d.id === 'sisters' ? 'sis_' + (b.sis || 'zeynep') : d.id); f.needsUpdate = true;   // the sister at the wheel
   const t = b.m.tag.material; t.map = tagTex(d); t.needsUpdate = true;
 }
 function addMats(b, list) { list.forEach((mt) => b.m.mats.push({ mt, t: mt.transparent, o: mt.opacity, dw: mt.depthWrite })); b.m.alpha = -1; }
@@ -2191,7 +2283,7 @@ function initSuperFX() {
   }
   const colors = ['#ffe14a', '#5ef1ff', '#ff5ecb', '#7dff6a', '#ffffff', '#ff9d3c'];
   for (let i = 0; i < 12; i++) {
-    const term = PHYSICS_TERMS[i * 2 % PHYSICS_TERMS.length], color = colors[i % colors.length];
+    const term = MATH_TERMS[i * 2 % MATH_TERMS.length], color = colors[i % colors.length];
     const t = texLabel(512, 128, (g, w, h) => {
       let fs = 64; g.font = `italic 900 ${fs}px ${FONT_D}`;
       while (g.measureText(term).width > 480 && fs > 22) { fs -= 4; g.font = `italic 900 ${fs}px ${FONT_D}`; }
@@ -2333,6 +2425,29 @@ function iconTex(kind) {
     } else if (kind === 'fire') {
       const gr = g.createRadialGradient(64, 80, 4, 64, 70, 60); gr.addColorStop(0, 'rgba(255,240,160,1)'); gr.addColorStop(0.45, 'rgba(255,110,20,.9)'); gr.addColorStop(1, 'rgba(200,20,0,0)');
       g.fillStyle = gr; g.beginPath(); g.moveTo(64, 6); g.quadraticCurveTo(116, 70, 96, 110); g.quadraticCurveTo(64, 128, 32, 110); g.quadraticCurveTo(12, 70, 64, 6); g.fill();
+    } else if (kind === 'donut') {
+      g.fillStyle = '#d9954a'; g.beginPath(); g.arc(64, 64, 54, 0, 7); g.fill();
+      g.fillStyle = '#ff7ab6'; g.beginPath(); for (let i = 0; i <= 20; i++) { const a = i / 20 * Math.PI * 2, r = 46 + Math.sin(i * 2.3) * 5; g.lineTo(64 + Math.cos(a) * r, 64 + Math.sin(a) * r); } g.fill();
+      for (let i = 0; i < 14; i++) { const a = i * 0.9, r = 26 + (i % 3) * 6; g.fillStyle = ['#ffffff', '#ffe14a', '#5ef1ff', '#7dff6a'][i % 4]; g.fillRect(64 + Math.cos(a) * r - 4, 64 + Math.sin(a) * r - 2, 8, 4); }
+      g.globalCompositeOperation = 'destination-out'; g.beginPath(); g.arc(64, 64, 16, 0, 7); g.fill(); g.globalCompositeOperation = 'source-over';
+    } else if (kind === 'sprinkle') {
+      const c = ['#ff5ecb', '#ffe14a', '#5ef1ff', '#7dff6a', '#ffffff', '#ff9d3c'];
+      for (let i = 0; i < 9; i++) { g.save(); g.translate(20 + (i % 3) * 44, 20 + Math.floor(i / 3) * 44); g.rotate(i * 0.9); g.fillStyle = c[i % c.length]; rrect(g, -14, -5, 28, 10, 5); g.fill(); g.restore(); }
+    } else if (kind === 'spark') {
+      const gr = g.createRadialGradient(64, 64, 2, 64, 64, 60); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.3, 'rgba(200,150,255,.9)'); gr.addColorStop(1, 'rgba(120,60,255,0)');
+      g.fillStyle = gr; g.beginPath(); g.arc(64, 64, 60, 0, 7); g.fill();
+    } else if (kind === 'glasses') {
+      g.strokeStyle = '#1b1d22'; g.lineWidth = 9; g.fillStyle = 'rgba(190,225,255,.55)';
+      for (const x of [34, 94]) { g.beginPath(); g.arc(x, 66, 25, 0, 7); g.fill(); g.stroke(); }
+      g.beginPath(); g.moveTo(58, 62); g.quadraticCurveTo(64, 54, 70, 62); g.stroke();
+      g.beginPath(); g.moveTo(10, 60); g.lineTo(2, 50); g.moveTo(118, 60); g.lineTo(126, 50); g.stroke();
+      g.strokeStyle = 'rgba(255,255,255,.9)'; g.lineWidth = 4; g.beginPath(); g.moveTo(24, 58); g.lineTo(32, 50); g.moveTo(84, 58); g.lineTo(92, 50); g.stroke();
+    } else if (kind === 'ghost') {
+      g.fillStyle = 'rgba(235,225,255,.95)'; g.beginPath(); g.moveTo(24, 110); g.lineTo(24, 60); g.arc(64, 60, 40, Math.PI, 0); g.lineTo(104, 110);
+      for (let i = 0; i < 4; i++) g.quadraticCurveTo(94 - i * 20, 124, 84 - i * 20, 110);
+      g.closePath(); g.fill();
+      g.fillStyle = '#2a1850'; for (const x of [50, 78]) { g.beginPath(); g.ellipse(x, 60, 7, 10, 0, 0, 7); g.fill(); }
+      g.beginPath(); g.ellipse(64, 84, 8, 6, 0, 0, 7); g.fill();
     } else if (kind === 'dumbbell') {
       g.fillStyle = '#2b2f36'; g.fillRect(30, 56, 68, 16);
       g.fillStyle = '#e10600'; g.fillRect(8, 30, 22, 68); g.fillRect(98, 30, 22, 68);
@@ -2447,7 +2562,7 @@ function nextCompound(b) {
 function tyreWear(b, dt) {
   if (!RACE.tyres || !b.tyre || b.remote || b.finished || b.pitStopT > 0 || RACE.state !== 'race' && RACE.state !== 'finish') return;
   const C = TYRES[b.tyre.c] || TYRES.M, v = Math.max(0, b.fwd);
-  const k = (1 + TYRES.slideWear * clamp((Math.abs(b.slip) - 0.08) * 5, 0, 1) + (b.off ? 0.4 : 0)) * wearRate(b.tyre.c, WX.wet);
+  const k = (1 + TYRES.slideWear * clamp((Math.abs(b.slip) - 0.08) * 5, 0, 1) + (b.off ? 0.4 : 0)) * wearRate(b.tyre.c, WX.wet) * abilWearMul(b);
   b.tyre.wear = Math.max(0, b.tyre.wear - v * dt * k * 100 / (C.life * TRACK.L));
 }
 
@@ -2676,12 +2791,16 @@ function stepWeather(dt) {
     if (RACE.state === 'race' && RACE.player && !RACE.player.finished) { if (on) { showMsg('Rain!', 'The track is getting wet', 'warn', 2.2); SFX.thunder(); } else toast('The rain has stopped: the track will dry'); }
   }
 }
-// wet asphalt: darker and shinier (materials registered in W.wetMats when the circuit is built)
+// wet asphalt: darker and shinier; Zeynep's ice: pale blue and glassy (materials registered in W.wetMats when the circuit is built)
 function applyWetLook() {
-  const w = WX.wet;
-  if (Math.abs(w - WX.applied) < 0.01) return;
-  WX.applied = w;
-  for (const m of W.wetMats || []) { m.color.setScalar(1 - 0.4 * w); m.roughness = 0.92 - 0.5 * w; }
+  const w = WX.wet, k = (typeof NFX !== 'undefined' && NFX.ice) || 0;
+  if (Math.abs(w - WX.applied) < 0.01 && Math.abs(k - (WX.appliedIce || 0)) < 0.01) return;
+  WX.applied = w; WX.appliedIce = k;
+  const c = 1 - 0.4 * w;
+  for (const m of W.wetMats || []) {
+    m.color.setRGB(lerp(c, 1.75, k), lerp(c, 2.0, k), lerp(c, 2.35, k)); m.roughness = lerp(0.92 - 0.5 * w, 0.06, k);
+    if (m.emissive) m.emissive.setRGB(0.1 * k, 0.15 * k, 0.21 * k);
+  }
 }
 // the forecast drawn as lap cells: dry, damp or wet
 function forecastStrip(fc, laps) {
@@ -2693,6 +2812,9 @@ const weatherName = (m) => (m === 'rain' ? 'Rain' : m === 'changing' ? 'Changing
 // =====================================================================
 //  DRIVER ABILITIES: students, two passives and one ability per driver.
 //  Every number comes from RULES and CHARACTERS in characters.js.
+//  The bigger systems of the newer drivers (Ali's sweets, Saner, the
+//  Ghostly Sisters, Doruk, Ataberk's cookie men, Sarp's likes) are in
+//  the next file.
 // =====================================================================
 const CH = {};
 CHARACTERS.forEach((c) => { CH[c.id] = c; });
@@ -2703,6 +2825,7 @@ const ITEMS = [], DROPS = [];
 let USE_ID = 0;
 // signed distance along the track from b to o (positive = o is ahead)
 function relS(o, b) { const L = TRACK.L; return ((o.q.s - b.q.s + L * 1.5) % L) - L / 2; }
+const racingNow = () => RACE.state === 'race';
 
 // ---------- per-bus state ----------
 function setHitbox(b, k) {
@@ -2711,34 +2834,42 @@ function setHitbox(b, k) {
 }
 function resetAbil(b) {
   const id = drvId(b);
-  b.bank = 0; b.meter = 0; b.effects = []; b.permBonus = 0; b.dynBonus = 0; b.dynSlow = 0;
-  b.baseMul = id === 'sarp' ? 1 + CH.sarp.passive2.baseSpeed : 1;
-  b.abilMul = b.baseMul; b.abilBonus = 0; b.abilSlow = 0; b.tempBonus = 0;
+  b.bank = 0; b.effects = []; b.permBonus = 0; b.dynBonus = 0; b.dynSlow = 0; b.turnK = 1;
+  b.baseMul = 1; b.abilMul = 1; b.abilBonus = 0; b.abilSlow = 0; b.tempBonus = 0;
   b.rivalStunT = 0; b.selfStunT = 0; b.stunT = 0; b.stunGuardT = 0;
   b.holdT = 0; b.throwT = 0; b.throwSide = 0; b.throwBy = null; b.throwEnd = -9; b.flyY = 0;
   b.fieldInv = false; b.fieldT = 0;
-  b.contact = new Map();
-  b.aura = id === 'sarp'; b.dirtProof = id === 'ataberk';
+  b.contact = new Map(); b.wallAt = -9; b.pullVx = 0; b.pullVz = 0;
+  b.aura = id === 'sarp'; b.dirtProof = id === 'saner'; b.wallProof = id === 'saner';
   b.stopPen = 0; b.penStopT = 0; b.ghostT = 0; b.penPaid = 0; b.finishPen = 0; b.abUses = 0;
+  // the Wheel Bar (bites take from it), Ali's sweet mark, Ali's satiety, Sarp's likes, Doruk's glasses
+  b.wheel = 100; b.mark = null; b.bitten = new Map();
+  b.meter = id === 'ali' ? CH.ali.passive2.start : 0;
+  b.likes = 0; b.glassesT = 0; b.trail = []; b.trailT = 0;
+  b.sis = 'elif';
   b.ab = { key: '', t: 0, max: 0, hits: new Set() };
   b.pv = {
     foodT: 0, foodNext: CH.egemen.passive1.every * rr(0.4, 0.7),
-    dessertT: 0, dessertNext: CH.ali.passive2.every * rr(0.4, 0.7),
+    cookieT: 0, cookieNext: CH.ataberk.passive2.every * rr(0.3, 0.6),
     gym: 0, gymLap: {}, gymPend: 0,
-    wrong: 0, quiz: null, quizT: 0, quizNext: CH.doruk.passive1.every * rr(0.45, 0.7),
+    wrong: 0, quiz: null, quizT: 0, quizNext: CH.shangai.passive1.every * rr(0.45, 0.7),
     drift: { t: 0, bad: false, calm: 0 },
-    lead: false, trailT: 0, trail: false, catch: 0, sarpUses: 0, songHist: [],
+    lead: false, trailT: 0, trail: false, catch: 0, songHist: [],
+    heatT: 0, hot: false,
+    barT: 0, barNext: rr(CH.ali.passive1.every[0], CH.ali.passive1.every[1]) * 0.5, full: false, band: '',
+    sisT: 0, follow: new Map(),
   };
-  b.ai.abDelay = rr(1, 3); b.ai.goal = pick([25, 50, 50, 100]); b.ai.rageWait = 0; b.ai.songWait = 0;
+  b.ai.abDelay = rr(1, 3); b.ai.rageWait = 0; b.ai.songWait = 0; b.ai.fullWait = 0; b.ai.waitT = 0; b.ai.seen = new Map();
   setHitbox(b, 1);
-  if (b.m) resetAbilFX(b);
+  if (b.m) { resetAbilFX(b); if (id === 'sisters') setSisterFace(b); }
 }
 // everything that lives in the world rather than on one bus
 function clearAbilWorld() {
   RAIN.t = 0; RAIN.max = 0; RAIN.owner = null; RAIN.bowT = 0;
   while (ITEMS.length) freeItem(ITEMS.pop());
   while (DROPS.length) DROPS.pop().mesh.visible = false;
-  RACE.check = null; RACE.extChecks = []; hideGates(); hideLep(); closeCheckUI(); quizUI(null);
+  clearPowersWorld();
+  hideGates(); hideLep(); quizUI(null);
   if (AFX.bow) AFX.bow.visible = false;
 }
 
@@ -2772,12 +2903,15 @@ function addEffect(t, key, kind, amt, time, label, src) {
   e.kind = kind; e.amt = amt; e.t = time; e.max = time; e.label = label;
   return true;
 }
+// the +25 % cap is for bonuses that wear off; permanent ones (Sarp's likes, the gym) and Ela's song come on top
 function computeMul(b) {
-  let bonus = b.permBonus + b.dynBonus, slow = b.dynSlow, temp = b.ab.key === 'song' ? b.ab.bonus : 0;
-  for (const e of b.effects) { if (e.kind === 'bonus') { bonus += e.amt; temp += e.amt; } else slow += e.amt; }
-  b.abilBonus = Math.min(RULES.maxBonus, bonus); b.abilSlow = Math.min(RULES.maxSlow, slow);
+  let eff = 0, slow = b.dynSlow;
+  for (const e of b.effects) { if (e.kind === 'bonus') eff += e.amt; else slow += e.amt; }
+  const song = b.ab.key === 'song' ? b.ab.bonus : 0;
+  b.abilBonus = Math.min(RULES.maxBonus, eff + b.dynBonus) + b.permBonus + song;
+  b.abilSlow = Math.min(RULES.maxSlow, slow);
   b.abilMul = b.baseMul + b.abilBonus - b.abilSlow;
-  b.tempBonus = Math.min(RULES.maxBonus, temp);   // short boosts show exhaust flames
+  b.tempBonus = Math.min(RULES.maxBonus, eff) + song;   // short boosts show exhaust flames
 }
 
 // ---------- using an ability ----------
@@ -2808,10 +2942,11 @@ function announce(b, text) {
   else popText(b, (text || d.ability.name).toUpperCase(), d.color);
 }
 const TRANSFORM_NAMES = { cat: 'Dex the cat', thermos: 'Giant thermos', coffee: 'Coffee cup' };
+const costBlock = (b, id) => (b.bank < CH[id].ability.cost ? needStudents(b, CH[id].ability.cost) : '');
 
 const ABIL = {
   volkan: {
-    block: (b) => (b.ab.key === 'field' ? 'Field is on' : b.bank < CH.volkan.ability.cost ? needStudents(b, CH.volkan.ability.cost) : ''),
+    block: (b) => (b.ab.key === 'field' ? 'Field is on' : costBlock(b, 'volkan')),
     use(b) {
       const a = CH.volkan.ability; b.bank -= a.cost;
       startAb(b, 'field', a.time).inside = new Map();
@@ -2819,19 +2954,20 @@ const ABIL = {
     },
   },
   egemen: {
-    block: (b) => (b.ab.key === 'ball' ? 'Ball in the air' : b.bank < CH.egemen.ability.cost ? needStudents(b, CH.egemen.ability.cost) : ''),
+    block: (b) => (b.ab.key === 'ball' ? 'Ball in the air' : costBlock(b, 'egemen')),
     use(b) {
-      const a = CH.egemen.ability, sy = Math.sin(b.yaw), cy = Math.cos(b.yaw);
+      // the ball keeps the direction the bus points at the kick and flies dead straight (no drift, no homing)
+      const a = CH.egemen.ability, sy = Math.sin(b.yaw), cy = Math.cos(b.yaw), v = Math.max(0, b.fwd) + a.ballSpeed;
       b.bank -= a.cost;
       startAb(b, 'ball', 0).ball = {
-        x: b.x + sy * (b.halfL + 0.7), z: b.z + cy * (b.halfL + 0.7), vx: b.vx + sy * a.ballSpeed, vz: b.vz + cy * a.ballSpeed,
+        x: b.x + sy * (b.halfL + 0.7), z: b.z + cy * (b.halfL + 0.7), vx: sy * v, vz: cy * v,
         life: a.range * BUSLEN / a.ballSpeed + 0.1, age: 0, hint: b.hint, q: { idx: 0, s: 0, d: 0, tx: 0, tz: 1 },
       };
       SFX.kick(camVol(b)); announce(b);
     },
   },
   irem: {
-    block: (b) => (b.ab.key ? 'Still transformed' : b.bank < CH.irem.ability.cost ? needStudents(b, CH.irem.ability.cost) : ''),
+    block: (b) => (b.ab.key ? 'Still transformed' : costBlock(b, 'irem')),
     use(b) {
       const a = CH.irem.ability; b.bank -= a.cost;
       const r = rnd(), c1 = a.cat.chance, c2 = c1 + a.thermos.chance, c3 = c2 + a.coffee.chance;
@@ -2851,7 +2987,7 @@ const ABIL = {
     },
   },
   ataberk: {
-    block: (b) => (RAIN.t > 0 ? 'It is already raining' : b.bank < CH.ataberk.ability.cost ? needStudents(b, CH.ataberk.ability.cost) : ''),
+    block: (b) => (RAIN.t > 0 ? 'It is already raining' : costBlock(b, 'ataberk')),
     use(b) {
       const a = CH.ataberk.ability; b.bank -= a.cost;
       startAb(b, 'rain', a.time);
@@ -2859,17 +2995,17 @@ const ABIL = {
       if (NET.racing) netEvent(null, 'rain', { src: busIdx(b), time: a.time, loss: a.gripLoss });
       SFX.thunder(); announce(b);
       const p = RACE.player;
-      if (p && p !== b) toast(p.aura ? 'Rain! Your happy aura keeps you dry' : 'Rain! −' + pct(a.gripLoss) + ' grip for ' + a.time + ' s');
+      if (p && p !== b) toast(p.aura ? 'Rain! Your chill mood keeps you dry' : 'Rain! −' + pct(a.gripLoss) + ' grip for ' + a.time + ' s');
     },
   },
-  doruk: {
+  shangai: {
     block: (b) => {
-      const need = CH.doruk.passive2.unlockWrong;
+      const need = CH.shangai.passive2.unlockWrong;
       if (b.ab.key === 'rage') return 'Raging';
       return b.pv.wrong < need ? 'Needs ' + need + ' wrong gates in a row (' + b.pv.wrong + '/' + need + ')' : '';
     },
     use(b) {
-      const a = CH.doruk.ability, spent = b.bank; b.bank = 0; b.pv.wrong = 0;
+      const a = CH.shangai.ability, spent = b.bank; b.bank = 0; b.pv.wrong = 0;
       let tier = a.tiers[0]; for (const t of a.tiers) if (spent >= t.min) tier = t;
       const ab = startAb(b, 'rage', a.time); ab.tier = tier; ab.spent = spent;
       SFX.rage(camVol(b)); announce(b, 'RAGE · ' + spent + ' students');
@@ -2877,15 +3013,12 @@ const ABIL = {
     },
   },
   sarp: {
-    block: (b) => { const a = CH.sarp.ability; return b.pv.sarpUses >= a.maxUses ? 'Used ' + a.maxUses + '/' + a.maxUses : b.bank < a.cost ? needStudents(b, a.cost) : ''; },
-    use(b) {
-      const a = CH.sarp.ability; b.bank -= a.cost; b.pv.sarpUses++; b.permBonus += a.bonus;
-      ringFX(b.x, b.z, 0, 0xffc629, 16); SFX.powerUp(camVol(b)); announce(b, 'Aura +' + pct(a.bonus));
-      if (b.isPlayer) toast('+' + pct(a.bonus) + ' top speed for the rest of the race (' + b.pv.sarpUses + '/' + a.maxUses + ')');
-    },
+    // Sarp's "ability" is liking the brainrot post on his screen (tap ♥ on it, or the ability key)
+    block: (b) => (!sarpPostOpen() ? 'Wait for a brainrot post' : costBlock(b, 'sarp')),
+    use(b) { likeNewestPost(b); b.abUses--; },   // sarpLike counts the use
   },
   ela: {
-    block: (b) => (b.ab.key === 'song' ? 'Singing' : b.bank < CH.ela.ability.cost ? needStudents(b, CH.ela.ability.cost) : ''),
+    block: (b) => (b.ab.key === 'song' ? 'Singing' : costBlock(b, 'ela')),
     use(b) {
       const a = CH.ela.ability; b.bank -= a.cost;
       startAb(b, 'song', a.time).bonus = 0; b.pv.songHist.length = 0;
@@ -2894,17 +3027,13 @@ const ABIL = {
     },
   },
   ali: {
-    block: (b) => {
-      const a = CH.ali.ability;
-      if (b.ab.key) return b.ab.key === 'seek' ? 'Hunting' : b.ab.key === 'bite' ? 'Biting' : 'Check running';
-      return b.meter < a.minMeter ? 'Needs ' + a.minMeter + '% sweet meter' : '';
-    },
+    block: (b) => (b.ab.key === 'vomit' ? 'Spraying sweets' : !b.pv.full ? 'Needs a full satiety meter (' + Math.floor(b.meter) + '%)' : ''),
     use(b) {
-      const a = CH.ali.ability, m = b.meter; b.meter = 0;
-      if (m >= a.full.from) { startAb(b, 'seek', a.full.seekTime); SFX.growl(camVol(b)); announce(b, 'HUNGRY!'); if (b.isPlayer) toast('Crash into a rival within ' + a.full.seekTime + ' s to bite it'); }
-      else if (m >= a.mid.from) startCheck(b);
-      else { addEffect(b, 'sugar', 'bonus', a.low.bonus, a.low.time, 'Sugar rush'); SFX.powerUp(camVol(b)); announce(b, 'Sugar rush +' + pct(a.low.bonus)); }
-      b.ai.goal = pick([25, 50, 50, 100]);
+      const a = CH.ali.ability;
+      b.meter = 0; b.pv.full = false;
+      const ab = startAb(b, 'vomit', a.time); ab.gain = 0;
+      SFX.vomit(camVol(b)); announce(b, 'Sweet vomit!');
+      if (b.isPlayer) toast('Spray the rivals in front of you: marked rivals bite!');
     },
   },
   ada: {
@@ -2918,6 +3047,42 @@ const ABIL = {
       else { o.throwT = a.throwTime; o.throwSide = tg.side; o.throwBy = b; if (o.ab.key === 'song') cutSong(o, '', true); }
       showLep(o, tg.side); SFX.lep(Math.max(camVol(b), camVol(o))); announce(b);
       if (o.isPlayer) showMsg('', 'A leprechaun grabbed you!', 'warn', 1.4);
+    },
+  },
+  saner: {
+    block: (b) => (b.ab.key === 'wild' ? 'Already uncontrolled' : costBlock(b, 'saner')),
+    use(b) {
+      const a = CH.saner.ability; b.bank -= a.cost;
+      const ab = startAb(b, 'wild', 0); ab.win = a.window; ab.n = 0;
+      SFX.revUp(camVol(b)); announce(b);
+      if (b.isPlayer) toast('Keep crashing to keep it going! Steering −' + pct(a.turn));
+    },
+  },
+  sisters: {
+    block: (b) => {
+      if ((ICE.t > 0 && ICE.owner === b) || (DARK.t > 0 && DARK.owner === b)) return ICE.owner === b && ICE.t > 0 ? 'The ice is still on' : 'It is still dark';
+      const c = costBlock(b, 'sisters'); if (c) return c;
+      if (b.sis === 'elif') { const sp = sisTeleportSpot(b); if (sp.why) return sp.why; }
+      return '';
+    },
+    use(b) {
+      const a = CH.sisters.ability;
+      if (b.sis === 'elif') {
+        const sp = sisTeleportSpot(b); if (sp.why) return;
+        b.bank -= a.cost; elifDarkness(b, sp);
+      } else { b.bank -= a.cost; zeynepIce(b); }
+    },
+  },
+  doruk: {
+    block: (b) => (b.ab.key === 'core' ? 'Core in the air' : HOLES.some((h) => h.owner === b) ? 'Your black hole is still open' : costBlock(b, 'doruk')),
+    use(b) {
+      const a = CH.doruk.ability, sy = Math.sin(b.yaw), cy = Math.cos(b.yaw), v = Math.max(0, b.fwd) + a.speed;
+      b.bank -= a.cost;
+      startAb(b, 'core', 0).core = {
+        x: b.x + sy * (b.halfL + 0.8), z: b.z + cy * (b.halfL + 0.8), vx: sy * v, vz: cy * v,
+        life: a.range * BUSLEN / a.speed, age: 0, hint: b.hint, q: { idx: 0, s: 0, d: 0, tx: 0, tz: 1 },
+      };
+      SFX.kick(camVol(b)); SFX.hole(camVol(b) * 0.6); announce(b, 'Black hole!');
     },
   },
 };
@@ -2961,14 +3126,18 @@ const ABSTEP = {
     if (b.ab.dropT <= 0) { b.ab.dropT += a.dropEvery; dropCoffee(b); }
   },
   song(b) {
+    // +2.5 % for every full second sung, growing until the song ends
     const a = CH.ela.ability, el = b.ab.max - b.ab.t;
-    b.ab.bonus = el >= a.time - 1 ? a.finalBonus : a.perSecond * Math.floor(el);
+    b.ab.bonus = a.perSecond * Math.floor(el + 1e-6);
     const h = b.pv.songHist, now = RACE.t, v = b.speed;   // real speed, so a slide in a corner doesn't count as a drop
     h.push([now, v]); while (h.length && now - h[0][0] > a.dropWindow) h.shift();
     let mx = 0; for (const e of h) mx = Math.max(mx, e[1]);
     if (b.ctrl.brk > 0.05) cutSong(b, 'Braked!');
     else if (mx > 8 && v < mx * (1 - a.speedDrop)) cutSong(b, 'Lost speed!');
   },
+  vomit: vomitStep,
+  wild(b, dt) { b.ab.win -= dt; if (b.ab.win <= 0) endAb(b, true); },
+  core: coreStep,
 };
 const ABEND = {
   ball(b, ab, hit) { ballPoof(ab.ball, hit); },
@@ -2985,17 +3154,9 @@ const ABEND = {
     SFX.stopSong();
     if (done) { popText(b, 'ENCORE!', '#ffe14a'); if (b.isPlayer) toast('Song complete, no stun!'); }
   },
-  check(b, ab) {
-    const n = botChecks(b, ab.bots);
-    if (RACE.check && !RACE.check.done && RACE.check.by === b) resolveCheck(false);
-    if (b.isPlayer) toast(n + ' of ' + ab.bots.length + ' bots here failed the check' + (NET.racing ? ' (players answer on their own screens)' : ''));
-  },
-  seek(b, ab, done) { if (done) { popText(b, 'NO SNACK…', '#c9b8ff'); if (b.isPlayer) toast('Nobody to bite: the meter is gone'); } },
-  bite(b) {
-    const a = CH.ali.ability.full;
-    addEffect(b, 'biteBonus', 'bonus', a.bonus, a.bonusTime, 'Sweet bite'); popText(b, 'YUM! +' + pct(a.bonus), '#ffe14a');
-  },
   lep() { hideLep(); },
+  vomit(b, ab) { if (b.isPlayer) toast(ab.hits.size ? 'Marked ' + [...ab.hits].filter((o) => !o.aura).length + ' · +' + ab.gain + '% satiety back' : 'Nobody was in the spray'); },
+  wild(b, ab) { popText(b, 'BACK IN CONTROL', '#9fe8ff'); if (b.isPlayer) toast('Uncontrolled speed over after ' + ab.n + (ab.n === 1 ? ' crash' : ' crashes')); },
 };
 
 // ---------- crashes between buses and into walls ----------
@@ -3012,6 +3173,7 @@ function restoreFwd(b, f0) {
 // each device runs the crash passives of the buses it drives
 function onCrash(A, B, fa, fb, sa, sb) { if (!A.remote) crashFor(A, B, fa, sb); if (!B.remote) crashFor(B, A, fb, sa); }
 function crashFor(b, o, f0, oSpeed) {
+  realCrash(b, 'bus', o);
   const id = drvId(b);
   if (id === 'volkan') {
     const p = CH.volkan.passive2;
@@ -3021,15 +3183,21 @@ function crashFor(b, o, f0, oSpeed) {
     if (addEffect(o, 'cinnamon', 'bonus', p.bonus, p.time, 'Cinnamon roll', b)) cinnamonFX(b, o);
     b.pv.drift.bad = true;
     if (b.ab.key === 'song') cutSong(b, 'Crash!');
-  } else if (id === 'doruk' && b.ab.key === 'rage' && !b.ab.hits.has(o)) {
+  } else if (id === 'shangai' && b.ab.key === 'rage' && !b.ab.hits.has(o)) {
     b.ab.hits.add(o); const t = b.ab.tier;
-    if (addEffect(o, 'burn', 'slow', t.slow, t.time, 'Burn', b)) { popText(o, 'BURN −' + pct(t.slow), '#ff6a2a'); SFX.burn(camVol(o)); }
+    if (addEffect(o, 'burn', 'slow', t.slow, t.time, 'Burning', b)) { popText(o, 'BURN −' + pct(t.slow), '#ff6a2a'); SFX.burn(camVol(o)); }
     else popText(o, 'IMMUNE', '#9fe8ff');
   } else if (id === 'irem' && b.ab.key === 'thermos' && !b.ab.hits.has(o)) {
     b.ab.hits.add(o);
     const ok = stunBus(o, CH.irem.ability.thermos.stun, b);
     popText(o, ok ? 'CLONK!' : 'IMMUNE', ok ? '#ffe14a' : '#9fe8ff'); SFX.clonk(camVol(o));
-  } else if (id === 'ali' && b.ab.key === 'seek' && canBite(o)) bite(b, o);
+  } else if (id === 'saner' && b.ab.key === 'wild') wildRam(b, o);
+}
+// a wall touch from the physics: a new crash only after the bus has let go of the wall for a moment
+function wallTouch(b, vn) {
+  const fresh = RACE.t - b.wallAt > RULES.contactGap;
+  b.wallAt = RACE.t;
+  if (fresh && vn > CH.saner.passive1.minHit) realCrash(b, 'wall', null);
 }
 function onWallImpact(b) {
   if (b.ab.key === 'song') cutSong(b, 'Crash!');
@@ -3061,13 +3229,7 @@ const PASSIVE = {
     const p = CH.egemen.passive1, pv = b.pv;
     if (!live || b.finished || b.lap < 1) return;
     pv.foodT += dt;
-    if (pv.foodT >= pv.foodNext) { pv.foodT = 0; pv.foodNext = p.every * rr(0.85, 1.15); if (itemCount(b) < p.maxItems) spawnItem(b, rnd() < p.glutenChance ? 'gluten' : 'free'); }
-  },
-  ali(b, dt, st, pos, live) {
-    const p = CH.ali.passive2, pv = b.pv;
-    if (!live || b.finished || b.lap < 1) return;
-    pv.dessertT += dt;
-    if (pv.dessertT >= pv.dessertNext) { pv.dessertT = 0; pv.dessertNext = p.every * rr(0.85, 1.15); if (itemCount(b) < 1) spawnItem(b, 'donut'); }
+    if (pv.foodT >= pv.foodNext) { pv.foodT = 0; pv.foodNext = p.every * rr(0.85, 1.15); if (itemCount(b, 'food') < p.maxItems) spawnItem(b, rnd() < p.glutenChance ? 'gluten' : 'free'); }
   },
   irem(b, dt, st, pos) {
     const p = CH.irem.passive2;
@@ -3081,7 +3243,9 @@ const PASSIVE = {
       popText(b, 'STRONGER +' + pct(p.bonus), '#7dff6a');
       if (b.isPlayer) toast('Gym done: +' + pct(p.bonus) + ' top speed until the finish (' + pv.gym + '/' + p.maxVisits + ')');
     }
-    if (!live || b.finished || pv.gym >= p.maxVisits || b.lap < 1) return;
+    if (!live || b.finished || b.lap < 1) return;
+    cookieSpawnStep(b, dt);
+    if (pv.gym >= p.maxVisits) return;
     const L = TRACK.L;
     for (const g of W.gyms) {
       if (pv.gymLap[g.i] === b.lap) continue;
@@ -3095,7 +3259,7 @@ const PASSIVE = {
       }
     }
   },
-  doruk(b, dt, st, pos, live) { quizStep(b, dt, live); },
+  shangai(b, dt, st, pos, live) { quizStep(b, dt, live); },
   ela(b, dt) { driftStep(b, dt); },
   ada(b, dt, st, pos) {
     const p1 = CH.ada.passive1, p2 = CH.ada.passive2, pv = b.pv, second = st[1];
@@ -3115,6 +3279,10 @@ const PASSIVE = {
     pv.trail = pv.trailT >= p2.hold;
     if (pv.trail) b.dynBonus += p2.bonus;
   },
+  ali: aliStep,
+  saner: sanerStep,
+  sisters: sistersStep,
+  doruk: dorukStep,
 };
 // Ela: a clean drift of at least a second pays out when it ends
 function driftStep(b, dt) {
@@ -3132,9 +3300,9 @@ function driftStep(b, dt) {
   dr.t = 0; dr.bad = false; dr.calm = 0;
 }
 
-// ---------- Doruk: math question, then two answer gates ----------
+// ---------- ShangaiMath: math question, then two answer gates ----------
 function quizStep(b, dt, live) {
-  const p = CH.doruk.passive1, pv = b.pv, q = pv.quiz;
+  const p = CH.shangai.passive1, pv = b.pv, q = pv.quiz;
   if (!live || b.finished) { if (q) endQuiz(b); return; }
   if (!q) {
     if (b.lap < 1) return;
@@ -3159,7 +3327,7 @@ function newQuiz(b) {
   else { a = ri(3, 9); c = ri(3, 9); ans = a * c; wrong = pick([a * (c + 1), a * (c - 1), ans + 2, ans - 2]); }
   if (wrong === ans || wrong < 0) wrong = ans + 3;
   const side = rnd() < 0.5 ? -1 : 1;   // where the right answer will be: −1 = left gate, 1 = right gate
-  b.pv.quiz = { phase: 'ask', t: 0, text: a + ' ' + op + ' ' + c + ' = ?', ans, wrong, side, botSide: rnd() < CH.doruk.passive1.botCorrect ? side : -side, s: 0, prev: 0 };
+  b.pv.quiz = { phase: 'ask', t: 0, text: a + ' ' + op + ' ' + c + ' = ?', ans, wrong, side, botSide: rnd() < CH.shangai.passive1.botCorrect ? side : -side, s: 0, prev: 0 };
   if (b.isPlayer) { quizUI(b.pv.quiz); SFX.tone(880, 0.12, 'triangle', 0.1); }
 }
 function placeGates(b, q) {
@@ -3171,7 +3339,7 @@ function placeGates(b, q) {
   if (b.isPlayer) quizUI(q);
 }
 function answerGate(b, q, side) {
-  const p = CH.doruk.passive2, ok = side === q.side;
+  const p = CH.shangai.passive2, ok = side === q.side;
   if (ok) { addEffect(b, 'gateOk', 'bonus', p.bonus, p.bonusTime, 'Right answer'); b.pv.wrong = 0; popText(b, 'CORRECT!', '#7dff6a'); SFX.ding(camVol(b)); }
   else { addEffect(b, 'gateBad', 'slow', p.slow, p.slowTime, 'Wrong answer'); b.pv.wrong++; popText(b, 'WRONG!', '#ff6b5e'); SFX.buzz(camVol(b)); }
   gateResult(side, ok);
@@ -3180,13 +3348,14 @@ function answerGate(b, q, side) {
 }
 function endQuiz(b, answered) { b.pv.quiz = null; hideGates(answered ? 1.4 : 0); if (b.isPlayer) quizUI(null); }
 
-// ---------- Egemen's snacks and Ali's donuts ----------
-function itemCount(b) { let n = 0; for (const it of ITEMS) if (it.owner === b) n++; return n; }
+// ---------- things on the road for one driver: Egemen's snacks, Ataberk's cookie men ----------
+const ITEM_GROUP = { gluten: 'food', free: 'food', cookie: 'cookie' };
+function itemCount(b, group) { let n = 0; for (const it of ITEMS) if (it.owner === b && ITEM_GROUP[it.kind] === group) n++; return n; }
 function spawnItem(b, kind) {
   const s = TRACK.wrapS(b.q.s + rr(110, 210)), lat = rr(-HW + 2.4, HW - 2.4);
   TRACK.pointAt(s, lat, TMP);
   const it = { kind, owner: b, s, d: lat, x: TMP.x, z: TMP.z, age: 0, mesh: takeItemMesh(kind) };
-  it.mesh.position.set(TMP.x, 0, TMP.z); it.mesh.visible = true;
+  it.mesh.position.set(TMP.x, 0, TMP.z); it.mesh.rotation.y = TMP.yaw; it.mesh.visible = true;
   ITEMS.push(it);
 }
 function itemsStep(dt) {
@@ -3207,16 +3376,12 @@ function collectItem(b, it) {
   } else if (it.kind === 'free') {
     const p = CH.egemen.passive2;
     addEffect(b, 'glutenFree', 'bonus', p.bonus, p.time, 'Gluten-free'); popText(b, 'GLUTEN-FREE +' + pct(p.bonus), '#7dff6a'); SFX.chime(camVol(b));
-  } else {
-    const p = CH.ali.passive2;
-    b.meter = Math.min(100, b.meter + p.perDessert); popText(b, 'DONUT +' + p.perDessert + '%', '#ff9ad5'); SFX.chime(camVol(b));
-  }
+  } else if (it.kind === 'cookie') startCookieRun(b, it);
 }
-// students from a bus stop: Ali eats them for his sweet meter, everyone else banks them
+// students from a bus stop: Ali doesn't take them (they stay for the others), a stop feeds his satiety instead
 function pickupStudents(b, n, stop) {
-  b.students += n;
-  if (drvId(b) === 'ali') { b.meter = Math.min(100, b.meter + n * CH.ali.passive1.perStudent); eatFX(b, stop); }
-  else b.bank += n;
+  if (drvId(b) === 'ali') { const g = CH.ali.passive2.stop; addSatiety(b, g); eatFX(b, stop, g); return; }
+  b.students += n; b.bank += n;
 }
 
 // ---------- İrem's coffee drops ----------
@@ -3242,82 +3407,6 @@ function dropsStep(dt) {
     }
   }
 }
-
-// ---------- Ali's sweet crisis ----------
-function startCheck(b) {
-  const a = CH.ali.ability.mid, ab = startAb(b, 'check', a.checkTime);
-  ab.bots = [];
-  for (const o of RACE.buses) {
-    if (o === b || o.finished || o.aura || o.remote) continue;
-    if (o.isPlayer) openCheck(b); else ab.bots.push({ bus: o, pass: rnd() < a.botPass });
-  }
-  if (NET.racing) netEvent(null, 'check', { src: busIdx(b) });   // players on other devices get their own check
-  SFX.checkStart(); announce(b, 'Sweet crisis!');
-}
-function openCheck(by) {
-  const z0 = rr(0.34, 0.6);
-  RACE.check = { t: 0, max: CH.ali.ability.mid.checkTime, z0, z1: z0 + 0.26, done: false, hideT: 0, by };
-  openCheckUI(RACE.check);
-}
-function pressCheck() {
-  const c = RACE.check; if (!c || c.done) return false;
-  const k = c.t / c.max; resolveCheck(k >= c.z0 && k <= c.z1); return true;
-}
-function resolveCheck(ok) {
-  const c = RACE.check, p = RACE.player; if (!c || c.done) return;
-  const a = CH.ali.ability.mid;
-  c.done = true; c.hideT = 0.7; c.ok = ok;
-  if (ok) { SFX.ding(1); toast('Dodged the sugar crash!'); }
-  else { if (p && addEffect(p, 'sugarCheck', 'slow', a.slow, a.slowTime, 'Sweet crisis', c.by)) toast('Sugar crash: −' + pct(a.slow) + ' for ' + a.slowTime + ' s'); SFX.buzz(1); }
-  checkResultUI(ok);
-}
-// bots that failed a reaction check are slowed when it ends
-function botChecks(by, bots) {
-  const a = CH.ali.ability.mid; let n = 0;
-  for (const r of bots) {
-    if (r.pass) { popText(r.bus, 'DODGED', '#7dff6a'); continue; }
-    if (addEffect(r.bus, 'sugarCheck', 'slow', a.slow, a.slowTime, 'Sweet crisis', by)) { n++; popText(r.bus, 'SUGAR CRASH', '#ff7ab6'); }
-  }
-  return n;
-}
-function checkTick(dt) {
-  const X = RACE.extChecks || [];
-  for (let i = X.length - 1; i >= 0; i--) { const e = X[i]; e.t += dt; if (e.t >= e.max) { botChecks(e.by, e.bots); X.splice(i, 1); } }
-  const c = RACE.check; if (!c) return;
-  c.t += dt;
-  if (!c.done && c.t >= c.max) resolveCheck(false);
-  if (c.done) { c.hideT -= dt; if (c.hideT <= 0) { RACE.check = null; closeCheckUI(); } }
-}
-function canBite(o) { return !o.aura && !o.finished && !(o.holdT > 0) && !(o.stunGuardT > 0) && !o.pit; }
-function bite(b, o) {
-  const a = CH.ali.ability.full;
-  startAb(b, 'bite', a.biteTime).victim = o;
-  b.holdT = a.biteTime; b.vx = b.vz = 0;
-  if (o.remote) netEvent(o, 'bite', { src: busIdx(b), dur: a.biteTime, pen: a.stopPenalty });
-  else { if (o.ab.key === 'song') cutSong(o, '', true); o.holdT = a.biteTime; o.vx = o.vz = 0; o.stopPen = Math.max(o.stopPen, a.stopPenalty); }
-  chompFX(b, o); SFX.chomp(Math.max(camVol(b), camVol(o)));
-  if (o.isPlayer) showMsg('CHOMP!', 'Ali bit you: ' + penaltyWhere(a.stopPenalty), 'warn', 2.2);
-  if (b.isPlayer) toast('CHOMP! ' + o.driver.nick + ' pays ' + a.stopPenalty + ' s ' + (RACE.tyres ? 'at the next pit stop' : 'at the line'));
-}
-const penaltyWhere = (t) => RACE.tyres ? '+' + t + ' s in the box at your next pit stop' : 'you stop for ' + t + ' s at the start/finish line';
-// Ali's bite penalty (tyres off): at the start/finish line the bitten bus stops and turns into a ghost nobody can hit
-function servePenalty(b) {
-  const t = b.stopPen; if (!(t > 0)) return;
-  if (b.ab.key === 'song') cutSong(b, '', true);
-  b.stopPen = 0; b.penPaid += t;
-  b.penStopT = t; b.holdT = Math.max(b.holdT, t); b.ghostT = t + 1.2; b.vx = b.vz = 0;
-  if (b.isPlayer) showMsg('Penalty stop', 'Ali\'s bite: ' + t + ' s at the line', 'warn', Math.min(2.2, t));
-  else popText(b, 'PENALTY STOP', '#ff8c7a');
-}
-// the ghost ends once no other bus overlaps it, so it never pops out of another bus
-function ghostStep(b, dt) {
-  if (b.penStopT > 0) b.penStopT = Math.max(0, b.penStopT - dt);
-  if (!(b.ghostT > 0)) return;
-  b.ghostT -= dt;
-  if (b.ghostT > 0) return;
-  for (const o of RACE.buses) if (o !== b && Math.hypot(o.x - b.x, o.z - b.z) < b.halfL + o.halfL + 0.5) { b.ghostT = 0.1; return; }
-  b.ghostT = 0;
-}
 function cutSong(b, why, noStun) {
   if (b.ab.key !== 'song') return;
   const a = CH.ela.ability;
@@ -3326,6 +3415,16 @@ function cutSong(b, why, noStun) {
   popText(b, (why || 'Song over').toUpperCase(), '#ff7ab6'); SFX.scratch(camVol(b));
   if (b.isPlayer) showMsg('', (why || 'The song stopped') + (noStun ? '' : ' · stunned for ' + a.failStun + ' s'), 'warn', 1.6);
 }
+// kept for older saves of the race state: no driver gives stop penalties any more
+function ghostStep(b, dt) {
+  if (b.penStopT > 0) b.penStopT = Math.max(0, b.penStopT - dt);
+  if (!(b.ghostT > 0)) return;
+  b.ghostT -= dt;
+  if (b.ghostT > 0) return;
+  for (const o of RACE.buses) if (o !== b && Math.hypot(o.x - b.x, o.z - b.z) < b.halfL + o.halfL + 0.5) { b.ghostT = 0.1; return; }
+  b.ghostT = 0;
+}
+function servePenalty(b) { b.stopPen = 0; }
 
 // ---------- once per physics step, after the buses moved ----------
 // Volkan's field: every device checks the buses it drives (the field's owner may be on another device)
@@ -3345,11 +3444,12 @@ function fieldCheck(dt) {
   }
 }
 function abilStep(dt) {
-  const all = RACE.buses, st = standings(), live = RACE.state === 'race';
+  const all = RACE.buses, st = standings(), live = racingNow();
   if (RAIN.t > 0) {
     RAIN.t = Math.max(0, RAIN.t - dt);
     if (RAIN.t === 0 && RAIN.owner && RAIN.owner.remote) { RAIN.bowT = 7; showBow(); SFX.rainbow(); }   // the owner's device adds the bonus
   }
+  powersWorldStep(dt, live);
   fieldCheck(dt);
   for (const b of all) {
     if (b.remote) continue;
@@ -3364,13 +3464,13 @@ function abilStep(dt) {
       const step = ABSTEP[b.ab.key]; if (step) step(b, dt);
       if (b.ab.key && b.ab.max > 0) { b.ab.t -= dt; if (b.ab.t <= 0) { b.ab.t = 0; endAb(b, true); } }
     }
-    b.dynBonus = 0; b.dynSlow = 0;
+    busPowersStep(b, dt);   // Wheel Bar, sweet marks, glasses
+    b.dynBonus = 0; b.dynSlow = 0; b.turnK = 1;
     const id = drvId(b);
     if (id && PASSIVE[id]) PASSIVE[id](b, dt, st, st.indexOf(b), live);
-    if (b.ab.key === 'song') b.dynBonus += b.ab.bonus;
     computeMul(b);
   }
-  itemsStep(dt); dropsStep(dt); checkTick(dt);
+  itemsStep(dt); dropsStep(dt);
 }
 
 // ---------- bots use their abilities for real ----------
@@ -3382,11 +3482,11 @@ function rivalAhead(b, maxDs, lane, filter) {
   }
   return null;
 }
-// the next stretch is fast enough to sing through without braking
-function aiSongSafe(b) {
+// the next stretch is fast enough to sing (or run wild) through without braking
+function aiSongSafe(b, turnK) {
   const v = Math.max(0, b.fwd);
   if (v < 24) return false;
-  for (let k = 10; k < 250; k += 10) { const kk = Math.abs(TRACK.curvAt(b.q.s + k)); if (kk > 0.003 && cornerSpeed(b.st, kk) * b.ai.skill < v * 1.1) return false; }
+  for (let k = 10; k < 250; k += 10) { const kk = Math.abs(TRACK.curvAt(b.q.s + k)); if (kk > 0.003 && cornerSpeed(b.st, kk, aiSteerK(b) * (turnK || 1)) * b.ai.skill < v * 1.1) return false; }
   return true;
 }
 const AIWANT = {
@@ -3394,47 +3494,48 @@ const AIWANT = {
   egemen: (b) => !!rivalAhead(b, b.halfL + CH.egemen.ability.range * BUSLEN + 3, b.bank >= 30 ? 3.6 : 2.2),
   irem: () => true,
   ataberk: () => true,
-  doruk: (b) => {
+  shangai: (b) => {
     // use it before the next gate: a right answer would lock it again
-    const T = CH.doruk.ability.tiers, top = T[T.length - 1].min, mid = T[Math.max(0, T.length - 2)].min;
+    const T = CH.shangai.ability.tiers, top = T[T.length - 1].min, mid = T[Math.max(0, T.length - 2)].min;
     const soon = !!b.pv.quiz && b.pv.quiz.phase === 'gates';
     const ready = soon || b.bank >= top || b.ai.rageWait > 12 || (b.bank >= mid && b.ai.rageWait > 5);
     return ready && (soon || b.ai.rageWait > 20 || !!rivalAhead(b, 45, 7, (o) => !o.aura));
   },
-  sarp: () => true,
+  sarp: () => false,   // never a bot
   ela: (b) => !rivalAhead(b, 32, 4) && (aiSongSafe(b) || b.ai.songWait > 22),
-  // a full meter waits for a rival right ahead in the same lane, so the hunt can end in a bite
-  ali: (b) => b.meter >= b.ai.goal && (b.ai.goal < CH.ali.ability.full.from || b.ai.fullWait > 45 || !!rivalAhead(b, b.ai.fullWait > 20 ? 26 : 16, b.ai.fullWait > 20 ? 5 : 3.5, canBite)),
+  ali: (b) => aliWantsVomit(b),
   ada: () => true,
+  saner: (b) => !!rivalAhead(b, 24, 3.2, (o) => !o.aura) || (b.ai.waitT > 12 && aiSongSafe(b, 1 - CH.saner.ability.turn)),
+  sisters: (b) => (b.sis === 'elif' ? true : sistersWantIce(b)),
+  doruk: (b) => { const a = CH.doruk.ability, R = a.range * BUSLEN; return !!rivalAhead(b, R + 14, 7, (o) => !o.aura && relS(o, b) > R * 0.45) || b.ai.waitT > 25; },
 };
 function aiAbility(b, dt) {
   const ai = b.ai, id = drvId(b);
   if (RACE.state !== 'race' || b.finished || !id || b.pit) return;
-  if (id === 'doruk' && b.pv.wrong >= CH.doruk.passive2.unlockWrong) ai.rageWait += dt;
+  if (id === 'shangai' && b.pv.wrong >= CH.shangai.passive2.unlockWrong) ai.rageWait += dt;
   if (id === 'ela' && b.bank >= CH.ela.ability.cost) ai.songWait += dt;
-  if (id === 'ali') {
-    ai.fullWait = b.meter >= 100 ? (ai.fullWait || 0) + dt : 0;
-    // a leader with nobody to chase settles for the reaction check before the meter fills up
-    if (ai.goal >= CH.ali.ability.full.from && b.meter >= CH.ali.ability.mid.from && b.meter < 100 && standings()[0] === b && !rivalAhead(b, 150, 30, canBite)) ai.goal = CH.ali.ability.mid.from;
-  }
+  if (id === 'ali') ai.fullWait = b.pv.full ? ai.fullWait + dt : 0;
+  if (typeof CH[id].ability.cost === 'number' && b.bank >= CH[id].ability.cost) ai.waitT += dt; else ai.waitT = 0;
   ai.abDelay -= dt; if (ai.abDelay > 0) return;
-  if (abilityBlock(b) || !AIWANT[id](b)) return;
-  if (useAbility(b)) { ai.abDelay = rr(0.8, 2.4); ai.rageWait = 0; ai.songWait = 0; }
+  if (!AIWANT[id] || abilityBlock(b) || !AIWANT[id](b)) return;
+  if (useAbility(b)) { ai.abDelay = rr(0.8, 2.4); ai.rageWait = 0; ai.songWait = 0; ai.waitT = 0; }
 }
 // where a bot wants to drive because of its own passives and ability
 function aiLaneWish(b, s, lane) {
   const id = drvId(b);
   const q = b.pv.quiz;
-  if (id === 'doruk' && q && q.phase === 'gates') { const ds = TRACK.wrapS(q.s - s); if (ds < 190) return q.botSide * 5; }
+  if (id === 'shangai' && q && q.phase === 'gates') { const ds = TRACK.wrapS(q.s - s); if (ds < 190) return q.botSide * 5; }
   b.ai.bait = false;
-  if ((id === 'ali' && b.ab.key === 'seek') || (id === 'doruk' && b.ab.key === 'rage')) {
-    const ok = id === 'ali' ? canBite : (x) => !x.aura && !b.ab.hits.has(x);
+  if (id === 'shangai' && b.ab.key === 'rage') {
+    const ok = (x) => !x.aura && !b.ab.hits.has(x);
     const o = rivalAhead(b, 70, 30, ok);
     if (o) return o.q.d;
     // nobody ahead: sit in the lane of a rival right behind and lift, so it runs into us
     const back = RACE.buses.find((x) => x !== b && !x.finished && ok(x) && relS(x, b) < 0 && relS(x, b) > -20);
     if (back) { b.ai.bait = true; return back.q.d; }
   }
+  if (id === 'saner' && b.ab.key === 'wild') { const o = rivalAhead(b, 40, 12, (x) => !x.aura); if (o) return o.q.d; }
+  if (id === 'ali' && b.pv.full) { const o = rivalAhead(b, 60, 14, (x) => !x.aura); if (o) return o.q.d; }   // full: get behind a rival to spray it
   for (const it of ITEMS) {
     if (it.owner !== b) continue;
     const ds = TRACK.wrapS(it.s - s);
@@ -3442,6 +3543,7 @@ function aiLaneWish(b, s, lane) {
     if (it.kind === 'gluten') { if (ds < 80 && Math.abs(lane - it.d) < 3.4) lane = it.d + (it.d > 0 ? -4.4 : 4.4); }
     else return it.d;
   }
+  lane = aiBarrierLane(b, s, lane);
   if (id === 'ataberk' && b.pv.gym < CH.ataberk.passive1.maxVisits && b.lap < RACE.laps) {
     for (const g of W.gyms) { if (b.pv.gymLap[g.i] === b.lap) continue; const ds = TRACK.wrapS(g.s - s); if (ds > 8 && ds < 150) return g.lat; }
   }
@@ -3453,47 +3555,523 @@ function abilityInfo(b) {
   const id = drvId(b), a = CH[id].ability, why = abilityBlock(b);
   const key = TOUCH ? 'Tap ABILITY' : 'Press SHIFT';
   const o = { name: a.name, cost: '', big: String(b.bank), unit: b.bank === 1 ? 'student' : 'students', frac: 0, state: 'wait', hint: why };
-  if (id === 'ali') { o.big = Math.round(b.meter) + '%'; o.unit = 'sweet meter'; o.frac = b.meter / 100; o.cost = a.minMeter + '%+'; }
-  else if (id === 'doruk') { o.cost = 'ALL'; o.frac = Math.min(1, b.pv.wrong / CH.doruk.passive2.unlockWrong); }
+  if (id === 'ali') { o.big = Math.floor(b.meter) + '%'; o.unit = 'satiety · ' + satietyBand(b).name; o.frac = b.meter / 100; o.cost = '100%'; }
+  else if (id === 'shangai') { o.cost = 'ALL'; o.frac = Math.min(1, b.pv.wrong / CH.shangai.passive2.unlockWrong); }
   else { o.cost = String(a.cost); o.frac = Math.min(1, b.bank / a.cost); }
-  if (id === 'sarp') o.name += ' ' + b.pv.sarpUses + '/' + a.maxUses;
-  if (b.ab.key && b.ab.max > 0) {
-    o.state = 'on'; o.frac = b.ab.t / b.ab.max;
-    o.hint = (TRANSFORM_NAMES[b.ab.key] || { seek: 'Hunting', bite: 'Biting', check: 'Reaction check', lep: 'Leprechaun', rain: 'Raining', song: 'Singing +' + pct(b.ab.bonus || 0), field: 'Field on', rage: 'Raging' }[b.ab.key] || a.name) + ' · ' + b.ab.t.toFixed(1) + ' s';
-  } else if (b.ab.key === 'ball') { o.state = 'on'; o.hint = 'Ball in the air'; }
+  if (id === 'sarp') { o.cost = a.cost + '/LIKE'; o.name = 'Likes ' + b.likes + ' · +' + pct(b.permBonus); }
+  if (id === 'sisters') o.name = b.sis === 'zeynep' ? 'Zeynep\'s ice' : 'Elif\'s darkness';
+  const ab = b.ab;
+  if (ab.key && ab.max > 0) {
+    o.state = 'on'; o.frac = ab.t / ab.max;
+    o.hint = (TRANSFORM_NAMES[ab.key] || { lep: 'Leprechaun', rain: 'Raining', song: 'Singing +' + pct(ab.bonus || 0), field: 'Field on', rage: 'Raging', vomit: 'Spraying sweets' }[ab.key] || a.name) + ' · ' + ab.t.toFixed(1) + ' s';
+  } else if (ab.key === 'ball') { o.state = 'on'; o.hint = 'Ball in the air'; }
+  else if (ab.key === 'core') { o.state = 'on'; o.hint = 'Core in the air'; }
+  else if (ab.key === 'wild') { o.state = 'on'; o.frac = ab.win / CH.saner.ability.window; o.hint = 'Uncontrolled · ' + ab.n + (ab.n === 1 ? ' crash' : ' crashes') + ' · ' + Math.max(0, ab.win).toFixed(1) + ' s'; }
+  else if (id === 'doruk' && HOLES.some((h) => h.owner === b)) { const h = HOLES.find((x) => x.owner === b); o.state = 'on'; o.frac = h.t / h.max; o.hint = 'Black hole · ' + h.t.toFixed(1) + ' s'; }
+  else if (id === 'sisters' && ((ICE.t > 0 && ICE.owner === b) || (DARK.t > 0 && DARK.owner === b))) { const W2 = ICE.owner === b && ICE.t > 0 ? ICE : DARK; o.state = 'on'; o.frac = W2.t / W2.max; o.hint = (W2 === ICE ? 'Ice' : 'Darkness') + ' · ' + W2.t.toFixed(1) + ' s'; }
   else if (!why) {
     o.state = 'ready';
-    if (id === 'ali') o.hint = key + ': ' + (b.meter >= a.full.from ? 'hunt a rival' : b.meter >= a.mid.from ? 'reaction check for all' : '+' + pct(a.low.bonus) + ' speed');
-    else if (id === 'doruk') o.hint = key + ': rage with ' + b.bank + ' students';
-    else o.hint = key + ': ' + a.name;
+    if (id === 'ali') o.hint = key + ': Sweet vomit!';
+    else if (id === 'shangai') o.hint = key + ': rage with ' + b.bank + ' students';
+    else if (id === 'sarp') o.hint = (TOUCH ? 'Tap ♥ on the post' : 'Click ♥ or press SHIFT') + ': +' + pct(a.bonus) + ' for good';
+    else o.hint = key + ': ' + o.name;
   }
   return o;
 }
 function effectList(b) {
   const L = [], id = drvId(b), pv = b.pv;
   const sgn = (x) => (x >= 0 ? '+' : '−') + pct(x);
-  if (b.penStopT > 0) L.push(['stun', 'Penalty stop', b.penStopT]);
-  else if (b.holdT > 0) L.push(['stun', id === 'ali' && b.ab.key === 'bite' ? 'Biting' : 'Bitten!', b.holdT]);
+  if (b.holdT > 0) L.push(['stun', 'Stuck', b.holdT]);
   else if (b.stunT > 0) L.push(['stun', 'Stunned', b.stunT]);
+  if (id === 'sisters') L.push(['info', (b.sis === 'zeynep' ? 'Zeynep drives' : 'Elif drives · −' + pct(CH.sisters.passive2.elifTurn) + ' steering'), null]);
   if (b.fieldInv) L.push(['bad', 'Reversed controls', null]);
   if (RAIN.t > 0 && !b.aura) L.push(['bad', 'Rain −' + pct(RAIN.loss) + ' grip', RAIN.t]);
+  if (ICE.t > 0 && !b.aura && ICE.owner !== b) L.push(['bad', 'Ice −' + pct(ICE.loss) + ' grip', ICE.t]);
+  if (DARK.t > 0 && !b.aura && DARK.owner !== b) L.push(['bad', 'Darkness', DARK.t]);
   for (const e of b.effects) L.push([e.kind === 'bonus' ? 'good' : 'bad', sgn(e.kind === 'bonus' ? e.amt : -e.amt) + ' ' + e.label, e.t]);
   if (b.ab.key === 'song') L.push(['good', '+' + pct(b.ab.bonus) + ' Song', b.ab.t]);
+  if (b.ab.key === 'wild') L.push(['good', '+' + pct(CH.saner.ability.bonus) + ' Uncontrolled', Math.max(0, b.ab.win)]);
   if (id === 'irem' && pv.catch > 0) L.push(['good', '+' + pct(pv.catch) + ' Catch-up', null]);
   if (id === 'ada' && pv.lead) L.push(['bad', '−' + pct(CH.ada.passive1.slow) + ' Clear leader', null]);
   if (id === 'ada' && pv.trail) L.push(['good', '+' + pct(CH.ada.passive2.bonus) + ' Trail', null]);
+  if (id === 'ali') { const bd = satietyBand(b); L.push([bd.amt > 0 ? 'good' : 'bad', sgn(bd.amt) + ' ' + bd.name, null]); }
+  if (id === 'saner') L.push(pv.hot ? ['bad', '−' + pct(CH.saner.passive2.slow) + ' Overheating', null] : ['info', 'Engine heat', Math.max(0, CH.saner.passive2.after - pv.heatT)]);
+  if (b.mark && b.mark.t > 0) L.push(['bad', 'Sweet mark: you bite!', b.mark.t]);
+  if (b.wheel < 99.5) L.push(['bad', 'Wheel Bar ' + Math.round(b.wheel) + '%', null]);
+  if (b.glassesT > 0) L.push(['bad', 'Glasses off', b.glassesT]);
   if (b.permBonus > 0) L.push(['good', '+' + pct(b.permBonus) + (id === 'sarp' ? ' Permanent' : ' Gym'), null]);
   if (b.stunGuardT > 0) L.push(['info', 'Stun guard', b.stunGuardT]);
-  if (b.stopPen > 0) L.push(['bad', RACE.tyres ? '+' + b.stopPen + ' s at the next stop' : 'Stop ' + b.stopPen + ' s at the line', null]);
-  if (id === 'doruk' && pv.wrong > 0) L.push(['info', 'Wrong in a row ' + pv.wrong + '/' + CH.doruk.passive2.unlockWrong, null]);
+  if (id === 'shangai' && pv.wrong > 0) L.push(['info', 'Wrong in a row ' + pv.wrong + '/' + CH.shangai.passive2.unlockWrong, null]);
   return L;
 }
 
 // =====================================================================
-//  ABILITY VISUALS: snacks, football, gym spots, answer gates, the
-//  marginal field, İrem's transformations, rain, rainbow, leprechaun
+//  THE BIGGER POWERS: Ali's sweet barriers, satiety and sweet vomit
+//  (marks, bites, the Wheel Bar), Saner's walls and heat, the Ghostly
+//  Sisters' ice and darkness, Doruk's grey trail, glasses and black
+//  hole, Ataberk's cookie men and Sarp's likes.
 // =====================================================================
-const AFX = { items: { gluten: [], free: [], donut: [] }, drops: [], dropTex: null, ball: null, gates: null, field: null, lep: null, rain: null, bow: null, mouthTex: null, labels: {} };
+const ICE = { t: 0, max: 0, loss: 0, owner: null };
+const DARK = { t: 0, max: 0, vision: 1, owner: null };
+const HOLES = [], BARRIERS = [], RUNS = [];
+const TP = {};
+let BAR_N = 0, HOLE_N = 0;
+const BAR_W = 3.6, BAR_D = 1.1;   // a sweet barrier: width across the road and depth along it (metres)
+const sDist = (a, c) => { const L = TRACK.L, d = Math.abs(a - c) % L; return Math.min(d, L - d); };
+const aiSteerK = (b) => (RACE.drift ? 1 + DRIFT_MODE.steer : 1) * (b.turnK || 1);
+
+function clearPowersWorld() {
+  ICE.t = 0; ICE.owner = null; DARK.t = 0; DARK.owner = null;
+  while (HOLES.length) hideHole(HOLES.pop());
+  while (BARRIERS.length) freeBarrier(BARRIERS.pop());
+  while (RUNS.length) freeRun(RUNS.pop());
+}
+// every device steps the things in the world; hits are decided by the device that drives the bus that is hit
+function powersWorldStep(dt, live) {
+  if (ICE.t > 0) { ICE.t = Math.max(0, ICE.t - dt); if (!ICE.t) { ICE.owner = null; const p = RACE.player; if (p && live && !p.aura) toast('The ice has melted'); } }
+  if (DARK.t > 0) { DARK.t = Math.max(0, DARK.t - dt); if (!DARK.t) DARK.owner = null; }
+  holesStep(dt);
+  barriersStep(dt, live);
+  runsStep(dt);
+  trailsSample(dt);
+}
+// the Wheel Bar refills, marks and glasses run out (buses driven here)
+function busPowersStep(b, dt) {
+  if (b.wheel < 100) b.wheel = Math.min(100, b.wheel + WHEEL_BAR.regen * dt);
+  if (b.mark) { b.mark.t -= dt; if (b.mark.t <= 0) b.mark = null; }
+  if (b.glassesT > 0) b.glassesT = Math.max(0, b.glassesT - dt);
+}
+// grip for the physics: Zeynep's ice, a bitten Wheel Bar
+function abilGripMul(b) {
+  let k = 1;
+  if (ICE.t > 0 && !b.aura && ICE.owner !== b) k *= 1 - ICE.loss;
+  if (b.wheel < 100) k *= 1 - WHEEL_BAR.gripLoss * (1 - b.wheel / 100);
+  return k;
+}
+// tyre wear: faster while Zeynep drives, none while she drives on her own ice
+function abilWearMul(b) {
+  if (drvId(b) !== 'sisters' || b.sis !== 'zeynep') return 1;
+  if (ICE.t > 0 && ICE.owner === b) return 0;
+  return 1 + CH.sisters.passive2.zeynepWear;
+}
+// a real crash (a new wall hit, an obstacle, a bus): Saner's heat and chain, Doruk's glasses
+function realCrash(b, kind) {
+  if (b.finished || !racingNow()) return;
+  const id = drvId(b);
+  if (id === 'saner') {
+    const pv = b.pv;
+    pv.heatT = 0;
+    if (pv.hot) { pv.hot = false; popText(b, 'COOLED DOWN', '#9fe8ff'); }
+    if (kind === 'wall') { const p = CH.saner.passive1; addEffect(b, 'wallPower', 'bonus', p.bonus, p.time, 'Wall power'); popText(b, 'WALL POWER +' + pct(p.bonus), '#ffb14a'); if (b.isPlayer) SFX.powerUp(0.45); }
+    if (b.ab.key === 'wild') { b.ab.n++; b.ab.win = CH.saner.ability.window; }
+  } else if (id === 'doruk') dropGlasses(b);
+}
+
+// ---------- Ali: satiety meter ----------
+function satietyBand(b) {
+  const p = CH.ali.passive2, m = b.meter;
+  if (m < p.hungry) return { key: 'hungry', name: 'Hungry', amt: -p.hungrySlow };
+  if (m < p.full) return { key: 'good', name: 'Just right', amt: p.goodBonus };
+  return { key: 'full', name: 'Stuffed', amt: -p.fullSlow };
+}
+function addSatiety(b, n) {
+  if (drvId(b) !== 'ali' || b.finished) return;
+  b.meter = Math.min(100, b.meter + n);
+  if (b.meter >= 100 && !b.pv.full) {
+    b.pv.full = true;   // a full meter stays full until Sweet vomit is used
+    popText(b, 'FULL! 100%', '#ff9ad5');
+    if (b.isPlayer) { showMsg('100%', 'Sweet vomit is ready: ' + (TOUCH ? 'tap ABILITY' : 'press Shift'), 'go', 2); SFX.powerUp(1); }
+  }
+}
+function aliStep(b, dt, st, pos, live) {
+  const p = CH.ali.passive2, pv = b.pv;
+  if (live && !b.finished && !pv.full) b.meter = Math.max(0, b.meter - p.decay * dt);
+  const band = satietyBand(b);
+  if (band.amt > 0) b.dynBonus += band.amt; else b.dynSlow -= band.amt;
+  if (pv.band !== band.key) {
+    if (pv.band && b.isPlayer && live) toast(band.key === 'hungry' ? 'Hungry! −' + pct(p.hungrySlow) + ' · visit a stop or eat a barrier' : band.key === 'good' ? 'Just right: +' + pct(p.goodBonus) + ' speed' : 'Stuffed: −' + pct(p.fullSlow) + ' speed, but you shove harder');
+    pv.band = band.key;
+  }
+  if (live && !b.finished && b.lap >= 1) barrierSpawnStep(b, dt);
+}
+const aliStuffed = (b) => drvId(b) === 'ali' && b.meter >= CH.ali.passive2.full;
+
+// ---------- Ali: sweet barriers on fixed spots of the circuit ----------
+// the spots: straight bits away from the start, the stops, the gyms and the pit lane, on alternate sides
+function buildBarrierSpots() {
+  const L = TRACK.L, out = [], stops = TDEF.stops.map((x) => x[0]), gyms = (TDEF.gyms || []).map((x) => x[0]);
+  let side = 1;
+  for (let s = 90; s < L - 50; s += 10) {
+    if (out.length && s - out[out.length - 1].s < 100) continue;
+    let bad = false;
+    for (let k = -25; k <= 25 && !bad; k += 5) if (Math.abs(TRACK.curvAt(s + k)) > 0.012) bad = true;
+    if (bad) continue;
+    if (stops.some((x) => sDist(x, s) < 30) || gyms.some((x) => sDist(x, s) < 25)) continue;
+    if (TDEF.pit && s > TDEF.pit.s0 - 40 && s < TDEF.pit.s1 + 40) continue;
+    out.push({ s, lat: side * 4.6 }); side = -side;
+  }
+  W.barSpots = out;
+}
+function barrierSpawnStep(b, dt) {
+  const p = CH.ali.passive1, pv = b.pv;
+  pv.barT += dt;
+  if (pv.barT < pv.barNext) return;
+  pv.barT = 0; pv.barNext = rr(p.every[0], p.every[1]);
+  if (BARRIERS.length >= p.max) return;
+  const ok = (W.barSpots || []).filter((sp) => !BARRIERS.some((x) => sDist(x.s, sp.s) < 30) && TRACK.wrapS(sp.s - b.q.s) > 70 && TRACK.wrapS(sp.s - b.q.s) < 380);
+  if (!ok.length) return;
+  const sp = pick(ok), id = (busIdx(b) + 1) * 10000 + (++BAR_N);
+  addBarrier(id, sp.s, sp.lat, p.life, b);
+  if (NET.racing) netEvent(null, 'bar', { src: busIdx(b), id, s: r2(sp.s), d: r2(sp.lat), life: p.life });
+}
+function addBarrier(id, s, lat, life, owner) {
+  if (BARRIERS.some((x) => x.id === id)) return;
+  TRACK.pointAt(s, lat, TP);
+  const bar = { id, s, d: lat, x: TP.x, z: TP.z, yaw: TP.yaw, t: life, max: life, owner, mesh: takeBarrierMesh() };
+  bar.mesh.position.set(TP.x, 0, TP.z); bar.mesh.rotation.y = TP.yaw; bar.mesh.scale.setScalar(0.01); bar.mesh.visible = true;
+  BARRIERS.push(bar);
+  if (camVol(bar) > 0.05) SFX.pop(camVol(bar));
+}
+function removeBarrier(bar, tell) {
+  const i = BARRIERS.indexOf(bar); if (i >= 0) BARRIERS.splice(i, 1);
+  freeBarrier(bar);
+  if (tell && NET.racing) netEvent(null, 'barx', { id: bar.id });
+}
+function barriersStep(dt, live) {
+  for (let i = BARRIERS.length - 1; i >= 0; i--) {
+    const bar = BARRIERS[i];
+    bar.t -= dt;
+    if (bar.t <= 0) { removeBarrier(bar, false); continue; }   // every device lets it run out by itself
+    if (!live) continue;
+    for (const o of RACE.buses) {
+      if (o.remote || o.finished || o.ghostT > 0) continue;
+      if (Math.abs(relS(o, { q: { s: bar.s } })) < o.halfL + BAR_D / 2 && Math.abs(o.q.d - bar.d) < o.halfW + BAR_W / 2) { hitBarrier(o, bar); break; }
+    }
+  }
+}
+// the first touch uses the barrier up: Ali eats it (below 80 %), everybody else gets stuck in it
+function hitBarrier(o, bar) {
+  const p = CH.ali.passive1, isAli = drvId(o) === 'ali';
+  removeBarrier(bar, true); sweetsBurst(bar);
+  if (isAli && o.meter < p.eatBelow) {
+    addSatiety(o, p.eat); popText(o, 'YUM! +' + p.eat + '%', '#ff9ad5'); SFX.nom(camVol(o));
+    if (o.isPlayer) toast('Ate a sweet barrier: satiety ' + Math.floor(o.meter) + '%');
+    return;
+  }
+  o.vx *= p.snag; o.vz *= p.snag;
+  if (o.isPlayer) { SFX.impact(0.6); camShake(0.6); }
+  realCrash(o, 'obstacle');
+  if (isAli) { stunBus(o, p.selfStun, null); popText(o, 'TOO FULL!', '#ff9ad5'); if (o.isPlayer) toast('Too full to eat it: stuck for ' + p.selfStun + ' s'); return; }
+  const ok = stunBus(o, p.rivalStun, bar.owner && bar.owner !== o ? bar.owner : { id: 'barrier' });
+  popText(o, ok ? 'STUCK IN SWEETS!' : 'IMMUNE', ok ? '#ff9ad5' : '#9fe8ff');
+  if (o.isPlayer) toast(ok ? 'Ali\'s sweet barrier: stunned for ' + p.rivalStun + ' s' : 'Sweet barrier: your chill mood shrugs it off');
+}
+// bots: Ali goes for his barriers while he can eat them, everybody else steers around them (most of the time)
+function aiBarrierLane(b, s, lane) {
+  const eat = drvId(b) === 'ali' && b.meter < CH.ali.passive1.eatBelow;
+  for (const bar of BARRIERS) {
+    const ds = TRACK.wrapS(bar.s - s);
+    if (ds < 2 || ds > (eat ? 150 : 75)) continue;
+    if (eat) return bar.d;
+    let seen = b.ai.seen.get(bar.id);
+    if (seen === undefined) { seen = rnd() < 0.82; b.ai.seen.set(bar.id, seen); }
+    if (seen && Math.abs(lane - bar.d) < 4.4) lane = bar.d + (bar.d > 0 ? -5.4 : 5.4);
+  }
+  return lane;
+}
+
+// ---------- Ali: sweet vomit, sweet marks and bites ----------
+function vomitStep(b, dt) {
+  const a = CH.ali.ability, ab = b.ab, R = a.range * BUSLEN, half = a.angle / 2 * Math.PI / 180;
+  const fx = Math.sin(b.yaw), fz = Math.cos(b.yaw), nx = b.x + fx * b.halfL, nz = b.z + fz * b.halfL;
+  for (const o of RACE.buses) {
+    if (o === b || o.finished || ab.hits.has(o)) continue;
+    const dx = o.x - nx, dz = o.z - nz, dist = Math.hypot(dx, dz), along = dx * fx + dz * fz;
+    if (dist > R + o.halfL || along < -o.halfL) continue;
+    const off = Math.atan2(Math.abs(dx * fz - dz * fx), along);   // angle away from Ali's nose
+    if (off > half + Math.atan2(o.halfW + 0.6, Math.max(1, dist))) continue;   // a bus partly in the cone counts
+    ab.hits.add(o);
+    if (o.aura) { popText(o, 'IMMUNE', '#9fe8ff'); continue; }
+    markBus(o, b, (busIdx(b) + 1) * 100000 + ab.id);
+    const g = Math.min(a.regain, a.regainMax - ab.gain);
+    if (g > 0) { ab.gain += g; addSatiety(b, g); }
+  }
+}
+function markBus(o, by, use) {
+  const a = CH.ali.ability;
+  if (o.remote) { if (NET.racing) netEvent(o, 'mark', { src: busIdx(by), use, t: a.mark }); }
+  else setMark(o, by, use, a.mark);
+  popText(o, 'SWEET MARK!', '#ff9ad5'); SFX.splat(camVol(o));
+}
+function setMark(o, by, use, t) {
+  if (o.aura || o.finished) return;
+  o.mark = { t, max: t, by, use };
+  if (o.isPlayer) showMsg('Sweet mark!', 'For ' + t + ' s you bite every driver you touch', 'warn', 2);
+}
+// a marked bus that touches another driver bites them (checked by the device that drives the bitten bus)
+function contactBite(A, B) {
+  if (!racingNow()) return;
+  if (!B.remote && A.mark && A.mark.t > 0) biteFrom(A, B);
+  if (!A.remote && B.mark && B.mark.t > 0) biteFrom(B, A);
+}
+function biteFrom(att, tg) {
+  if (tg.finished || att.finished || tg.aura) return;
+  const a = CH.ali.ability, uk = 'u' + att.mark.use, pk = 'p' + busIdx(att);
+  const n = tg.bitten.get(uk) || 0, last = tg.bitten.has(pk) ? tg.bitten.get(pk) : -99;
+  if (n >= a.bitesPerTarget || RACE.t - last < a.biteGap) return;
+  tg.bitten.set(uk, n + 1); tg.bitten.set(pk, RACE.t);
+  tg.wheel = Math.max(0, tg.wheel - a.bite);
+  chompFX(att, tg); SFX.chomp(Math.max(camVol(att), camVol(tg)));
+  popText(tg, 'CHOMP! −' + a.bite + ' WHEEL', '#ff9ad5');
+  if (tg.isPlayer) showMsg('CHOMP!', (att.driver ? att.driver.nick : 'A rival') + ' bit you: −' + a.bite + ' Wheel Bar', 'warn', 1.8);
+}
+function aliWantsVomit(b) {
+  if (!b.pv.full) return false;
+  if (b.ai.fullWait > 12) return true;
+  const R = CH.ali.ability.range * BUSLEN;
+  return RACE.buses.some((o) => o !== b && !o.finished && !o.aura && relS(o, b) > 0 && relS(o, b) < R + 3 && Math.abs(o.q.d - b.q.d) < 6);
+}
+
+// ---------- Saner: power from walls, overheating, uncontrolled speed ----------
+function sanerStep(b, dt, st, pos, live) {
+  const p = CH.saner.passive2, pv = b.pv;
+  if (live && !b.finished && !b.pit) pv.heatT += dt;
+  const hot = pv.heatT >= p.after && !b.finished;
+  if (hot && !pv.hot) { popText(b, 'OVERHEATING!', '#ff6a2a'); if (b.isPlayer) { toast('Engine overheating: −' + pct(p.slow) + ' until your next crash'); SFX.kettle(1); } }
+  pv.hot = hot;
+  if (hot) b.dynSlow += p.slow;
+  if (b.ab.key === 'wild') { b.dynBonus += CH.saner.ability.bonus; b.turnK *= 1 - CH.saner.ability.turn; }
+}
+// ramming a rival while uncontrolled: both are stunned, longer the longer the crash chain
+function wildRam(b, o) {
+  const a = CH.saner.ability, dur = Math.min(a.stunMax, a.stunBase + a.stunPer * b.ab.n);
+  const ok = stunBus(o, dur, b);
+  stunBus(b, dur, null);
+  popText(o, ok ? 'RAMMED!' : 'IMMUNE', ok ? '#ffe14a' : '#9fe8ff'); SFX.bonk(Math.max(camVol(b), camVol(o)));
+  if (b.isPlayer) toast('Rammed' + (ok ? '' : ' (they were protected)') + ': stunned ' + dur.toFixed(1) + ' s');
+}
+// ---------- the Ghostly Sisters ----------
+function sistersStep(b, dt, st, pos, live) {
+  const p = CH.sisters.passive1;
+  const want = pos >= 0 && pos < p.zeynepUpTo ? 'zeynep' : 'elif';   // from 4th place on (7th and beyond too) it is Elif
+  if (want !== b.sis && live && !b.finished) { b.pv.sisT += dt; if (b.pv.sisT >= p.hold) switchSister(b, want); }
+  else b.pv.sisT = 0;
+  if (b.sis === 'elif') b.turnK *= 1 - CH.sisters.passive2.elifTurn;
+}
+function switchSister(b, who, quiet) {
+  b.sis = who; b.pv.sisT = 0; setSisterFace(b);
+  if (quiet) return;
+  const S = CH.sisters.sisters[who];
+  popText(b, S.name.toUpperCase() + ' DRIVES', S.color);
+  if (b.isPlayer) { superBanner(S.name + ' takes the wheel', b.driver); SFX.ghost(0.8); }
+}
+function setSisterFace(b) { if (!b.m || !b.m.face) return; const f = b.m.face.material; f.map = faceTex('sis_' + b.sis); f.needsUpdate = true; }
+// the grid decides who starts
+function initSisters() {
+  const st = standings();
+  for (const b of RACE.buses) if (drvId(b) === 'sisters' && !b.remote) switchSister(b, st.indexOf(b) < CH.sisters.passive1.zeynepUpTo ? 'zeynep' : 'elif', true);
+}
+function zeynepIce(b) {
+  const a = CH.sisters.ability.ice;
+  ICE.t = a.time; ICE.max = a.time; ICE.loss = a.gripLoss; ICE.owner = b;
+  if (NET.racing) netEvent(null, 'ice', { src: busIdx(b), time: a.time, loss: a.gripLoss });
+  SFX.freeze(); announce(b, 'Zeynep\'s ice');
+  const p = RACE.player;
+  if (p && p !== b) toast(p.aura ? 'Ice! Your chill mood keeps your grip' : 'Ice on the road! −' + pct(a.gripLoss) + ' grip for ' + a.time + ' s');
+}
+function sistersWantIce(b) {
+  return RACE.buses.some((o) => o !== b && !o.finished && !o.aura && Math.abs(o.progress - b.progress) < 40) || b.ai.waitT > 14;
+}
+// Elif's jump: a free, safe spot about a bus length in front of the driver right ahead in the standings
+function sisTeleportSpot(b) {
+  const st = standings(), pos = st.indexOf(b);
+  if (pos <= 0) return { why: 'Nobody ahead of you' };
+  const t = st[pos - 1];
+  if (t.finished) return { why: 'The driver ahead has finished' };
+  const L = TRACK.L, a = CH.sisters.ability.dark, lim = HW - b.halfW - 0.6;
+  const base = t.progress + t.halfL + a.gap * BUSLEN + b.halfL, finish = (RACE.laps + 1) * L;
+  for (const extra of [0, 4, 8, 13]) {
+    const prog = base + extra;
+    if (prog > finish - 15) return { why: 'Too close to the finish' };
+    const s = ((prog % L) + L) % L;
+    for (const dl of [0, -3.6, 3.6, -7.2, 7.2]) {
+      const lat = clamp(t.q.d + dl, -lim, lim);
+      TRACK.pointAt(s, lat, TP);
+      if (RACE.buses.some((o) => o !== b && Math.hypot(o.x - TP.x, o.z - TP.z) < o.halfL + b.halfL + 1.2)) continue;
+      if (BARRIERS.some((x) => sDist(x.s, s) < 6 && Math.abs(x.d - lat) < 3.5)) continue;
+      return { s, lat, prog, target: t };
+    }
+  }
+  return { why: 'No safe spot ahead' };
+}
+function teleportBus(b, sp) {
+  const L = TRACK.L, v = Math.max(0, b.fwd), lap0 = b.lap, lapN = Math.floor(sp.prog / L);
+  b.place(sp.s, sp.lat);
+  const sy = Math.sin(b.yaw), cy = Math.cos(b.yaw); b.vx = sy * v; b.vz = cy * v; b.fwd = v;
+  b.lap = lap0; b.prevS = sp.s;
+  while (b.lap < lapN && !b.finished) b.crossLine(1);   // jumping over the line counts like driving over it
+  b.progress = b.lap * L + sp.s;
+  if (b.isPlayer) { CAM.ox = null; CAM.yaw = b.yaw; CAM.hint = TRACK.globalNearest(b.x, b.z); }
+}
+function elifDarkness(b, sp) {
+  const a = CH.sisters.ability.dark, fx = b.x, fz = b.z;
+  teleportBus(b, sp);
+  DARK.t = a.time; DARK.max = a.time; DARK.vision = a.vision; DARK.owner = b;
+  if (NET.racing) netEvent(null, 'dark', { src: busIdx(b), time: a.time, vision: a.vision });
+  ghostPoof(fx, fz); ghostPoof(b.x, b.z); SFX.ghost(1); announce(b, 'Elif\'s darkness');
+  const p = RACE.player;
+  if (p && p !== b) { if (p.aura) toast('Darkness! Your chill mood keeps your eyes open'); else showMsg('Darkness!', 'Elif jumped ahead · you can\'t see far', 'warn', 1.8); }
+}
+
+// ---------- Doruk: grey trail, glasses, black hole ----------
+// the trail is recorded on every device (everybody sees it); the device that drives Doruk decides who is caught in it
+function trailsSample(dt) {
+  const life = CH.doruk.passive1.life;
+  for (const b of RACE.buses) {
+    const T = b.trail;
+    if (drvId(b) !== 'doruk') { if (T.length) T.length = 0; continue; }
+    while (T.length && RACE.t - T[0].t > life) T.shift();
+    if (!racingNow() || b.finished) continue;
+    b.trailT -= dt;
+    if (b.trailT > 0) continue;
+    b.trailT = 0.07;
+    const [x, z] = rearPoint(b);
+    T.push({ x, z, t: RACE.t });
+  }
+}
+function dorukStep(b, dt, st, pos, live) {
+  const p = CH.doruk.passive1, T = b.trail;
+  if (!live || T.length < 2) return;
+  for (const o of RACE.buses) {
+    if (o === b || o.finished || o.aura) continue;
+    let f = b.pv.follow.get(o);
+    if (!f) { f = { on: 0, off: 9, armed: true }; b.pv.follow.set(o, f); }
+    if (onTrail(o, T, p.width)) { f.on += dt; f.off = 0; } else { f.off += dt; f.on = 0; }
+    if (!f.armed && f.off >= p.rearm) f.armed = true;
+    if (f.armed && f.on >= p.follow) {
+      f.armed = false;
+      if (addEffect(o, 'greyTrail', 'slow', p.slow, p.time, 'Grey trail', b)) { popText(o, 'GREY TRAIL −' + pct(p.slow), '#c9d1de'); if (o.isPlayer) toast('Caught in Doruk\'s grey trail: −' + pct(p.slow) + ' for ' + p.time + ' s'); }
+    }
+  }
+}
+// following = on the trail and driving along it (crossing it doesn't count)
+function onTrail(o, T, width) {
+  const sp = o.speed; if (sp < 4) return false;
+  const ux = o.vx / sp, uz = o.vz / sp;
+  for (let i = 1; i < T.length; i++) {
+    const a = T[i - 1], c = T[i], dx = c.x - a.x, dz = c.z - a.z, l = Math.hypot(dx, dz);
+    if (l < 0.01) continue;
+    if ((dx * ux + dz * uz) / l > 0.6 && distPtSeg(o.x, o.z, a.x, a.z, c.x, c.z) < width / 2 + 0.3) return true;
+  }
+  return false;
+}
+function dropGlasses(b) {
+  const had = b.glassesT > 0;
+  b.glassesT = CH.doruk.passive2.blur;   // a new crash restarts it, it never gets blurrier
+  if (!had) { glassesFX(b); if (b.isPlayer) glassesUI(); }
+}
+function coreStep(b, dt) {
+  const C = b.ab.core;
+  C.x += C.vx * dt; C.z += C.vz * dt; C.life -= dt; C.age += dt;
+  TRACK.project(C.x, C.z, C.hint, C.q); C.hint = C.q.idx;
+  let hit = Math.abs(C.q.d) > WALL - 0.8;
+  if (!hit) for (const o of RACE.buses) if (o !== b && !o.finished && busDist(o, C.x, C.z) < o.halfW + 0.5) { hit = true; break; }
+  if (!hit) for (const bar of BARRIERS) if (sDist(C.q.s, bar.s) < 1.5 && Math.abs(C.q.d - bar.d) < BAR_W / 2 + 0.4) { hit = true; break; }
+  if (!hit && C.life > 0) return;
+  // the hole opens on the circuit, never inside a wall
+  TRACK.pointAt(C.q.s, clamp(C.q.d, -(WALL - 1.4), WALL - 1.4), TP);
+  const x = TP.x, z = TP.z;
+  endAb(b, true);
+  formHole(b, x, z, (busIdx(b) + 1) * 10000 + (++HOLE_N), true);
+}
+function formHole(owner, x, z, id, local) {
+  if (HOLES.some((h) => h.id === id)) return;
+  const a = CH.doruk.ability;
+  const h = { id, x, z, t: a.time, max: a.time, owner, hits: new Set(), fx: takeHoleFX() };
+  placeHoleFX(h); HOLES.push(h);
+  SFX.hole(Math.max(0.15, camVol(h)));
+  if (local && NET.racing) netEvent(null, 'hole', { src: busIdx(owner), id, x: r2(x), z: r2(z) });
+}
+// every device pulls the buses it drives (the physics adds the pull and keeps them inside the walls)
+function holesStep(dt) {
+  for (const o of RACE.buses) if (!o.remote) { o.pullVx = 0; o.pullVz = 0; }
+  const a = CH.doruk.ability, R = a.radius * BUSLEN, core = a.core * BUSLEN;
+  for (let i = HOLES.length - 1; i >= 0; i--) {
+    const h = HOLES[i];
+    h.t -= dt;
+    if (h.t <= 0) { hideHole(h); HOLES.splice(i, 1); continue; }
+    if (!racingNow()) continue;
+    for (const o of RACE.buses) {
+      if (o.remote || o === h.owner || o.finished || o.aura || o.pit) continue;
+      const dx = h.x - o.x, dz = h.z - o.z, r = Math.hypot(dx, dz);
+      if (r >= R) continue;
+      if (r > 0.4) { const vp = a.pull * o.st.vmax * (0.4 + 0.6 * (1 - r / R)); o.pullVx += dx / r * vp; o.pullVz += dz / r * vp; }
+      if (!h.hits.has(o) && busDist(o, h.x, h.z) < core) {
+        h.hits.add(o);
+        const ok = stunBus(o, a.stun, h.owner);
+        popText(o, ok ? 'SPAGHETTIFIED!' : 'IMMUNE', ok ? '#c59bff' : '#9fe8ff');
+        if (o.isPlayer && ok) toast('Pulled into Doruk\'s black hole: stunned!');
+      }
+    }
+  }
+}
+
+// ---------- Ataberk: cookie men ----------
+function cookieSpawnStep(b, dt) {
+  const p = CH.ataberk.passive2, pv = b.pv;
+  pv.cookieT += dt;
+  if (pv.cookieT < pv.cookieNext) return;
+  pv.cookieT = 0; pv.cookieNext = p.every * rr(0.85, 1.15);
+  if (itemCount(b, 'cookie') < p.maxOut) spawnItem(b, 'cookie');
+}
+function startCookieRun(b, it, remote) {
+  const p = CH.ataberk.passive2;
+  RUNS.push({ owner: b, s: b.q.s + b.halfL, d: it.d, t: 0, hits: new Set(), fx: takeRunFX(), local: !remote });
+  popText(b, 'COOKIE RUN!', '#e0a13c'); SFX.cookies(camVol(b));
+  if (remote) return;
+  if (b.isPlayer) toast('Cookie men sprint ahead: rivals they hit are −' + pct(p.slow));
+  if (NET.racing) netEvent(null, 'cookies', { src: busIdx(b), d: r2(it.d) });
+}
+function runsStep(dt) {
+  const p = CH.ataberk.passive2, far = p.run * BUSLEN;
+  for (let i = RUNS.length - 1; i >= 0; i--) {
+    const r = RUNS[i], b = r.owner;
+    r.t += dt;
+    r.s += Math.max(18, Math.max(0, b.fwd) + 14) * dt;   // faster than the bus, so they get ahead of it
+    r.lead = relS({ q: { s: r.s } }, { q: { s: b.q.s + b.halfL } });
+    if (r.lead >= far || r.t > 2.6 || RACE.state !== 'race') { freeRun(r); RUNS.splice(i, 1); continue; }
+    if (!r.local) continue;
+    for (const o of RACE.buses) {
+      if (o === b || o.finished || r.hits.has(o)) continue;
+      if (Math.abs(relS(o, { q: { s: r.s } })) < o.halfL + 1 && Math.abs(o.q.d - r.d) < o.halfW + 2.6) {
+        r.hits.add(o);
+        if (addEffect(o, 'cookie', 'slow', p.slow, p.time, 'Cookie men', b)) { popText(o, 'COOKIE CRASH −' + pct(p.slow), '#e0a13c'); if (o.isPlayer) toast('Ataberk\'s cookie men ran into you!'); }
+        else popText(o, 'IMMUNE', '#9fe8ff');
+      }
+    }
+  }
+}
+
+// ---------- Sarp: likes and speed thresholds ----------
+function sarpTier(b) { const a = CH.sarp.ability, k = b.permBonus + 1e-9; return k >= a.t3 ? 3 : k >= a.t2 ? 2 : k >= a.t1 ? 1 : 0; }
+function sarpLike(b) {
+  const a = CH.sarp.ability;
+  if (!b || b.finished || !racingNow()) return false;
+  if (b.bank < a.cost) { toast(b.bank ? needStudents(b, a.cost) + ' to like it' : 'No students to spend on a like'); SFX.denied(); return false; }
+  const t0 = sarpTier(b);
+  b.bank -= a.cost; b.likes++; b.permBonus += a.bonus; b.abUses++;
+  popText(b, 'LIKED +' + pct(a.bonus), '#ff5ecb'); SFX.like();
+  const t1 = sarpTier(b);
+  if (t1 > t0 && b.isPlayer) showMsg(['', 'Brainrot overload', 'Tilted camera', 'Paranormal reality'][t1], 'Permanent +' + pct(b.permBonus) + ' · your screen gets wilder', 'warn', 2.2);
+  else if (b.isPlayer) toast('+' + pct(b.permBonus) + ' permanent speed (' + b.likes + (b.likes === 1 ? ' like' : ' likes') + ')');
+  return true;
+}
+
+// =====================================================================
+//  ABILITY VISUALS: snacks, cookie men, football, gym spots, answer gates,
+//  the marginal field, İrem's transformations, rain, rainbow, leprechaun
+// =====================================================================
+const AFX = { items: { gluten: [], free: [], cookie: [] }, drops: [], dropTex: null, ball: null, gates: null, field: null, lep: null, rain: null, bow: null, mouthTex: null, labels: {} };
 const V3 = new THREE.Vector3();
 
 function initAbilFX() {
@@ -3530,14 +4108,14 @@ function initAbilFX() {
     for (let i = 0; i < 6; i++) { const x = 44 + i * 28; g.beginPath(); g.moveTo(x, 146); g.lineTo(x + 26, 146); g.lineTo(x + 13, 112); g.closePath(); g.fill(); g.stroke(); }
     g.lineWidth = 10; g.strokeStyle = '#a66cff'; g.beginPath(); g.ellipse(128, 84, 118, 68, 0, 0, 7); g.stroke();
   });
-  initGates(); initField(); initRain(); initBow(); initLep();
+  initGates(); initField(); initRain(); initBow(); initLep(); initNewFX();
 }
 
-// ---------- snacks and donuts ----------
+// ---------- Egemen's snacks and Ataberk's cookie men ----------
 function itemLabel(kind) {
   if (AFX.labels[kind]) return AFX.labels[kind];
-  const txt = kind === 'gluten' ? 'GLUTEN' : kind === 'free' ? 'GLUTEN-FREE' : 'DONUT +' + CH.ali.passive2.perDessert + '%';
-  const bg = kind === 'gluten' ? '#d8201c' : kind === 'free' ? '#1f9a45' : '#a66cff';
+  const txt = kind === 'gluten' ? 'GLUTEN' : kind === 'free' ? 'GLUTEN-FREE' : 'COOKIE MEN';
+  const bg = kind === 'gluten' ? '#d8201c' : kind === 'free' ? '#1f9a45' : '#a4581f';
   AFX.labels[kind] = texLabel(512, 128, (g, w, h) => {
     g.fillStyle = bg; rrect(g, 8, 18, w - 16, h - 36, 30); g.fill();
     g.lineWidth = 6; g.strokeStyle = '#ffffff'; g.stroke();
@@ -3557,14 +4135,10 @@ function makeItemMesh(kind) {
     parts = [[ap, 0x7cc242], [cylAt(0.06, 0.08, 0.55, 6, 0, 2.4, 0, 0, 0.2), 0x6b4a2e], [boxAt(0.5, 0.06, 0.28, 0.25, 2.35, 0, 0, 0, -0.5), 0x2f8a2f]];
     const m = new THREE.Mesh(mergeColored(parts), new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 60 })); m.castShadow = true; body.add(m);
   } else {
-    const dough = new THREE.TorusGeometry(0.72, 0.34, 12, 28); dough.translate(0, 1.45, 0);
-    const icing = new THREE.TorusGeometry(0.72, 0.3, 10, 28); icing.scale(1.03, 1.03, 0.75); icing.translate(0, 1.45, 0.12);
-    parts = [[dough, 0xd9954a], [icing, 0xff7ab6]];
-    for (let i = 0; i < 16; i++) { const a = i / 16 * Math.PI * 2 + 0.2, r = 0.72 + (i % 3 - 1) * 0.12; parts.push([boxAt(0.16, 0.05, 0.05, Math.cos(a) * r, 1.45 + Math.sin(a) * r, 0.42, 0, 0, a * 1.7), pick([0xffffff, 0xffe14a, 0x5ef1ff, 0x7dff6a])]); }
-    const m = new THREE.Mesh(mergeColored(parts), new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 40 })); m.castShadow = true; body.add(m);
+    const g = makeCookieGroup(); g.scale.setScalar(0.72); body.add(g);   // three cookie men waiting for Ataberk
   }
   const ringG = new THREE.RingGeometry(1.5, 1.85, 40); ringG.rotateX(-Math.PI / 2);
-  const ring = new THREE.Mesh(ringG, new THREE.MeshBasicMaterial({ color: col(kind === 'gluten' ? 0xff3b30 : kind === 'free' ? 0x34ff6a : 0xc59bff), transparent: true, opacity: 0.8, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
+  const ring = new THREE.Mesh(ringG, new THREE.MeshBasicMaterial({ color: col(kind === 'gluten' ? 0xff3b30 : kind === 'free' ? 0x34ff6a : 0xffa24a), transparent: true, opacity: 0.8, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
   ring.position.y = 0.08; ring.renderOrder = 3; grp.add(ring);
   const lab = new THREE.Sprite(new THREE.SpriteMaterial({ map: itemLabel(kind), transparent: true, depthWrite: false }));
   lab.scale.set(3.6, 0.9, 1); lab.position.y = 3.3; lab.renderOrder = 6; grp.add(lab);
@@ -3608,7 +4182,7 @@ function buildGyms() {
 function showGyms(on) { for (const g of W.gyms) { g.decal.visible = on; g.grp.visible = on; } }
 function gymFX(g, b) { for (let i = 0; i < 6; i++) iconAt('dumbbell', b.x + rr(-1.5, 1.5), 3 + rr(0, 1.5), b.z + rr(-1.5, 1.5), rr(-2, 2), rr(3, 6), rr(-2, 2), 1.1, 1.1, 9); }
 
-// ---------- Doruk's answer gates ----------
+// ---------- ShangaiMath's answer gates ----------
 function initGates() {
   const grp = new THREE.Group();
   const steel = new THREE.MeshLambertMaterial({ color: col(0x2b2f36) });
@@ -3720,13 +4294,18 @@ function showBow() {
   AFX.bow.visible = true;
 }
 const SKY0 = {};
-function rainLook(k) {
-  const u = skyMesh.material.uniforms;
-  if (!SKY0.top) { SKY0.top = u.uTop.value.clone(); SKY0.hor = u.uHor.value.clone(); SKY0.fog = scene.fog.color.clone(); SKY0.sun = sun.intensity; SKY0.hemi = hemi.intensity; SKY0.grey = col(0x6f7a86); SKY0.greyH = col(0x9aa4ae); SKY0.near = scene.fog.near; SKY0.far = scene.fog.far; }
-  scene.fog.near = SKY0.near * (1 - 0.6 * k); scene.fog.far = SKY0.far * (1 - 0.45 * k);   // less far to see in the rain
-  u.uTop.value.copy(SKY0.top).lerp(SKY0.grey, k * 0.75); u.uHor.value.copy(SKY0.hor).lerp(SKY0.greyH, k * 0.75);
-  scene.fog.color.copy(SKY0.fog).lerp(SKY0.greyH, k * 0.75); scene.background.copy(scene.fog.color);
-  sun.intensity = lerp(SKY0.sun, SKY0.sun * 0.4, k); hemi.intensity = lerp(SKY0.hemi, SKY0.hemi * 0.72, k);
+let RAIN_K = 0;
+const DARK_VIEW = 300;   // metres you normally look ahead on the circuit
+function rainLook(k) { RAIN_K = k; skyLook(); }
+// the sky, the light and how far you can see: rain (for everybody) and Elif's darkness (for everybody but her and Sarp)
+function skyLook() {
+  const u = skyMesh.material.uniforms, k = RAIN_K, d = NFX.dark || 0;
+  if (!SKY0.top) { SKY0.top = u.uTop.value.clone(); SKY0.hor = u.uHor.value.clone(); SKY0.fog = scene.fog.color.clone(); SKY0.sun = sun.intensity; SKY0.hemi = hemi.intensity; SKY0.grey = col(0x6f7a86); SKY0.greyH = col(0x9aa4ae); SKY0.night = col(0x0b0916); SKY0.near = scene.fog.near; SKY0.far = scene.fog.far; }
+  // less far to see in the rain; in the dark only half of the usual ~300 m you look ahead on the circuit
+  scene.fog.near = lerp(SKY0.near * (1 - 0.6 * k), 12, d); scene.fog.far = lerp(SKY0.far * (1 - 0.45 * k), DARK_VIEW * (DARK.vision || 0.5), d);
+  u.uTop.value.copy(SKY0.top).lerp(SKY0.grey, k * 0.75).lerp(SKY0.night, d * 0.85); u.uHor.value.copy(SKY0.hor).lerp(SKY0.greyH, k * 0.75).lerp(SKY0.night, d * 0.8);
+  scene.fog.color.copy(SKY0.fog).lerp(SKY0.greyH, k * 0.75).lerp(SKY0.night, d * 0.85); scene.background.copy(scene.fog.color);
+  sun.intensity = lerp(SKY0.sun, SKY0.sun * 0.4, k) * (1 - 0.6 * d); hemi.intensity = lerp(SKY0.hemi, SKY0.hemi * 0.72, k) * (1 - 0.45 * d);
 }
 function updateRain(dt) {
   const R = AFX.rain, want = Math.max(RAIN.t > 0 ? 1 : 0, WX.rain);   // Ataberk's rain or the weather
@@ -3914,15 +4493,18 @@ function chompFX(b, o) {
   for (let i = 0; i < 3; i++) iconAt('teeth', o.x + rr(-1, 1), o.def.dim.H + 1.2, o.z + rr(-1, 1), rr(-1, 1), rr(1, 3), rr(-1, 1), 1.4, 1.6, 2);
   if (b.isPlayer || o.isPlayer) camShake(0.9);
 }
-function eatFX(b, stop) {
+// Ali at a bus stop: a snack from the stop (the students stay where they are)
+function eatFX(b, stop, g) {
+  if (b.isPlayer) toast('Snack stop: satiety ' + Math.floor(b.meter) + '%');
   if (camVol(b) <= 0) return;
-  popText(b, 'NOM NOM! +' + stop.kids.length * CH.ali.passive1.perStudent + '%', '#c59bff');
+  popText(b, 'SNACK STOP +' + g + '%', '#c59bff');
   SFX.nom(camVol(b));
-  for (let i = 0; i < 6; i++) { stop.kids[i % stop.kids.length].getWorldPosition(V3); iconAt('candy', V3.x, V3.y + 1, V3.z, 0, 0, 0, 0.9 + i * 0.06, 1, 0, b); }
+  TRACK.pointAt(stop.s, stop.side * (WALL + 2), TMP);
+  for (let i = 0; i < 6; i++) iconAt(i % 2 ? 'donut' : 'candy', TMP.x + rr(-1, 1), 1.5, TMP.z + rr(-2, 2), 0, 0, 0, 0.9 + i * 0.06, 1, 0, b);
 }
-// fade the Doruk gates, move the field, animate everything that belongs to an ability
+// fade the answer gates, move the field, animate everything that belongs to an ability
 function updateAbilFX(dt, time) {
-  updatePop(dt); updateIcons(dt); updateRain(dt); updateLep(dt, time);
+  updatePop(dt); updateIcons(dt); updateRain(dt); updateLep(dt, time); updateNewFX(dt, time);
   // snacks bob and spin
   for (const it of ITEMS) { const u = it.mesh.userData; u.body.rotation.y += dt * 1.6; u.body.position.y = Math.sin(time * 3 + it.s) * 0.25; }
   for (const d of DROPS) { d.mesh.scale.setScalar(Math.min(1, d.mesh.scale.x + dt * 5)); d.mesh.material.opacity = Math.min(1, d.life / 1.2); }
@@ -3970,7 +4552,7 @@ function busFX(b, dt, time) {
     if (kind === 'coffee') { T.cup.rotation.z = Math.sin(time * 10) * 0.04; fx.steamT = (fx.steamT || 0) - dt; if (fx.steamT <= 0) { fx.steamT = 0.12; puff(b.x + rr(-0.5, 0.5), b.def.dim.H + 2.4, b.z + rr(-0.5, 0.5), SMOKE, 0.5, 2, 0.8, 2); } }
     if (kind === 'plant') T.plant.scale.setScalar(1.3 * Math.min(1, (1.2 - fx.plantT) * 6));
   }
-  // Doruk's rage: red glow, flames, physics terms
+  // ShangaiMath's rage: red glow, flames, maths
   const rage = key === 'rage';
   if (rage) { setRageGlow(b, true, 0.65 + Math.sin(time * 14) * 0.35); fx.rage = true; fx.flameT = (fx.flameT || 0) - dt; if (fx.flameT <= 0) { fx.flameT = 0.05; iconAt('fire', b.x + rr(-1.2, 1.2), 1 + rr(0, b.def.dim.H), b.z + rr(-2, 2), rr(-1, 1), rr(2, 4), rr(-1, 1), 0.45, rr(0.7, 1.25), -2); } }
   else if (fx.rage) { setRageGlow(b, false); fx.rage = false; }
@@ -3981,10 +4563,10 @@ function busFX(b, dt, time) {
   if (bow && !fx.rainbow) fx.rainbow = makeRainbow();
   if (fx.rainbow) updateRainbow(fx.rainbow, b, bow);
   if (bow) { fx.coinT = (fx.coinT || 0) - dt; if (fx.coinT <= 0) { fx.coinT = 0.06; emitCoin(b); if (b.isPlayer && Math.random() < 0.3) SFX.coin(); } }
-  // Ali's hungry mouth
-  const hungry = key === 'seek' || key === 'bite';
+  // Ali's big mouth while the sweets fly
+  const hungry = key === 'vomit';
   if (hungry && !fx.mouth) fx.mouth = makeMouth(b);
-  if (fx.mouth) { fx.mouth.visible = hungry; if (hungry) { const c = key === 'bite' ? Math.abs(Math.sin(time * 18)) : 0.6 + Math.sin(time * 8) * 0.25; fx.mouth.scale.set(3.2, 2 * (0.35 + 0.65 * c), 1); } }
+  if (fx.mouth) { fx.mouth.visible = hungry; if (hungry) { const c = 0.75 + Math.sin(time * 14) * 0.25; fx.mouth.scale.set(3.2, 2 * (0.35 + 0.65 * c), 1); } }
 }
 function makeMouth(b) {
   const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: AFX.mouthTex, transparent: true, depthWrite: false }));
@@ -3998,6 +4580,7 @@ function prebuildFX() {
     if (!fx.tf) fx.tf = makeTransform(b);
     if (!fx.rainbow) fx.rainbow = makeRainbow();
     if (!fx.mouth) fx.mouth = makeMouth(b);
+    flameSprites(b); markSprite(b);
   }
   for (const kind of Object.keys(AFX.items)) {
     const ms = [takeItemMesh(kind), takeItemMesh(kind)];
@@ -4046,9 +4629,9 @@ function updateCoinsRings(dt) {
 
 // =====================================================================
 //  SCREEN EFFECTS for the player: stun, gluten alarm, reversed controls,
-//  Ali's reaction check, Doruk's question card, Sarp's brainrot windows
+//  ShangaiMath's question card, Doruk's glasses, Sarp's brainrot posts
 // =====================================================================
-const PFX = { filter: '', revT: 0, brainT: 0 };
+const PFX = { filter: '', revT: 0 };
 function superBanner(text, d) {
   const el = H.sb;
   el.style.setProperty('--dc', d.color);
@@ -4057,17 +4640,10 @@ function superBanner(text, d) {
 }
 function glutenAlarm() { RACE.alarmT = 1.5; H.alarm.hidden = false; SFX.siren(1.5); camShake(0.5); }
 function reversedWarning() { PFX.revT = 1.6; H.revWarn.classList.remove('flash'); void H.revWarn.offsetWidth; H.revWarn.classList.add('flash'); SFX.buzz(0.6); }
-function openCheckUI(c) {
-  H.chkZone.style.left = (c.z0 * 100).toFixed(1) + '%'; H.chkZone.style.width = ((c.z1 - c.z0) * 100).toFixed(1) + '%';
-  H.chkMark.style.left = '0%'; H.checkCard.className = ''; H.checkCard.hidden = false;
-  H.chkMsg.textContent = TOUCH ? 'Tap ABILITY when the marker is in the green' : 'Press SHIFT when the marker is in the green';
-}
-function checkResultUI(ok) { H.checkCard.className = ok ? 'ok' : 'bad'; H.chkMsg.textContent = ok ? 'Dodged it!' : 'Sugar crash!'; }
-function closeCheckUI() { if (H.checkCard) H.checkCard.hidden = true; }
 function quizUI(q) {
   if (!H.quizCard) return;
   if (!q) { H.quizCard.hidden = true; return; }
-  H.quizCard.hidden = false; H.qzText.textContent = q.text;
+  H.quizCard.hidden = false; H.qzText.textContent = q.text; H.qzEye.textContent = CH.shangai.nick + ' · math question';
   const left = q.side < 0 ? q.ans : q.wrong, right = q.side > 0 ? q.ans : q.wrong;
   H.qzL.textContent = '◀ ' + left; H.qzR.textContent = right + ' ▶';
   H.quizCard.classList.toggle('gates', q.phase === 'gates');
@@ -4077,62 +4653,37 @@ const BRAINROT = [
   ['🚌🗿', 'SIGMA BUS'], ['🤫🧏', 'mewing mode'], ['📉', '−500 AURA'], ['🍝🎤', 'spaghetti opera'], ['🐸☕', 'frog with a latte'],
   ['🧠🔥', 'brain.exe stopped'], ['🐟🎩', 'fish in a top hat'], ['🍌📞', 'banana phone'], ['🦆⚡', 'duck of doom'],
 ];
-// the windows go in the empty strip at the left or right edge, between the HUD blocks, never over the road
-function brainrotSpot(winH) {
-  const box = (el) => (el && el.offsetParent !== null ? el.getBoundingClientRect() : null);
-  const tl = box(document.querySelector('.hud-tl')), mm = box(H.minimap), tw = box(H.tower), dash = box(document.querySelector('.dash'));
-  const gaps = [
-    { right: false, a: (tl ? tl.bottom : 16) + 8, b: (mm ? mm.top : innerHeight - 16) - 8 },
-    { right: true, a: (tw ? tw.bottom : 16) + 8, b: (dash ? dash.top : innerHeight - 16) - 8 },
-  ];
-  if (innerWidth < 640) gaps.forEach((g) => { g.b = Math.min(g.b, g.a + winH + 90); });   // phones: just under the HUD, far from the bus
-  const fit = gaps.filter((g) => g.b - g.a >= winH);
-  const g = fit.length ? pick(fit) : gaps.sort((x, y) => (y.b - y.a) - (x.b - x.a))[0];
-  return { right: g.right, top: Math.max(g.a, Math.min(g.b - winH, rr(g.a, g.b - winH))) };
-}
-function showBrainrot() {
-  const [emo, cap] = pick(BRAINROT), el = document.createElement('div');
-  const narrow = innerWidth < 640, spot = brainrotSpot(narrow ? 92 : 112);
-  el.className = 'brwin';
-  el.style.cssText = (spot.right ? 'right:' : 'left:') + (narrow ? 8 : rr(16, 40).toFixed(0)) + 'px;top:' + spot.top.toFixed(0) + 'px;--tilt:' + rr(-6, 6).toFixed(1) + 'deg';
-  el.innerHTML = '<div class="brbar"><span></span><i>×</i></div><b></b><small></small>';
-  el.querySelector('span').textContent = pick(['brainrot.exe', 'aura.exe', 'sigma.exe', 'ohio.exe', 'rizz.exe']);
-  el.querySelector('b').textContent = emo; el.querySelector('small').textContent = cap;
-  H.brainrot.appendChild(el); SFX.glitch(); SFX.glitch();
-  setTimeout(() => el.remove(), CH.sarp.passive1.show * 1000);
-}
-function brainrotEvery(b) { const p = CH.sarp.passive1; return Math.max(p.minEvery, p.every - p.minusPerUse * b.pv.sarpUses); }
 function updatePlayerFX(dt) {
   const p = RACE.player, gl = $('gl'), live = RACE.state === 'race' || RACE.state === 'finish';
   const stun = !!p && live && (p.stunT > 0 || p.holdT > 0);
-  const f = stun && !REDUCED ? `blur(${(1.4 + Math.sin(clock * 18)).toFixed(1)}px)` : '';
+  const glasses = !!p && live && p.glassesT > 0, glitch = SARP.vfx === 'glitch' && live;
+  const f = REDUCED ? '' : stun ? `blur(${(1.4 + Math.sin(clock * 18)).toFixed(1)}px)` : glitch ? `hue-rotate(${Math.floor(rr(60, 300))}deg) saturate(2.2) contrast(1.3)` : glasses ? 'blur(1.7px)' : '';
   if (f !== PFX.filter) { gl.style.filter = f; PFX.filter = f; }
   if (H.stun.hidden === stun) H.stun.hidden = !stun;
-  if (stun) H.stun.textContent = p.holdT > 0 ? (drvId(p) === 'ali' ? 'CHOMP!' : 'BITTEN!') : 'STUNNED!';
+  if (stun) H.stun.textContent = p.holdT > 0 ? 'STUCK!' : 'STUNNED!';
+  if (!glasses && !H.glasses.hidden) H.glasses.hidden = true;
   if (RACE.alarmT > 0) { RACE.alarmT -= dt; if (RACE.alarmT <= 0) H.alarm.hidden = true; }
   const rev = !!p && live && p.fieldInv;
   if (H.revWarn.hidden === rev) H.revWarn.hidden = !rev;
-  if (RACE.check) { const c = RACE.check; H.chkMark.style.left = (clamp(c.t / c.max, 0, 1) * 100).toFixed(1) + '%'; }
   const q = p && p.pv && p.pv.quiz;
   if (q && !H.quizCard.hidden) {
     H.quizCard.classList.toggle('gates', q.phase === 'gates');
-    H.qzHint.textContent = q.phase === 'ask' ? 'Gates in ' + Math.max(1, Math.ceil(CH.doruk.passive1.gateDelay - q.t)) + '…' : 'Drive through the gate with the right answer';
+    H.qzHint.textContent = q.phase === 'ask' ? 'Gates in ' + Math.max(1, Math.ceil(CH.shangai.passive1.gateDelay - q.t)) + '…' : 'Drive through the gate with the right answer';
   }
-  if (p && drvId(p) === 'sarp' && RACE.state === 'race' && !p.finished && !RACE.paused) {
-    PFX.brainT += dt;
-    if (PFX.brainT >= brainrotEvery(p)) { PFX.brainT = 0; showBrainrot(); }
-  }
+  if (p && drvId(p) === 'sarp' && RACE.state === 'race' && !p.finished && !RACE.paused) updateSarp(dt);
+  else if (SARP.posts.length || SARP.vfx) sarpReset();
   if (p && p.ab.key === 'rage' && live) { PFX.termT = (PFX.termT || 0) - dt; if (PFX.termT <= 0) { PFX.termT = 0.22; spawnTerm(); } }
   H.hud.classList.toggle('wet', RAIN.t > 0 && !!p && !p.aura);
 }
 function clearPlayerFX() {
-  const gl = $('gl'); gl.style.transform = ''; gl.style.filter = ''; PFX.filter = ''; PFX.brainT = 0;
-  H.stun.hidden = true; H.alarm.hidden = true; RACE.alarmT = 0; H.terms.textContent = ''; H.revWarn.hidden = true; H.brainrot.textContent = '';
-  H.hud.classList.remove('wet'); closeCheckUI(); quizUI(null);
+  const gl = $('gl'); gl.style.transform = ''; gl.style.filter = ''; PFX.filter = '';
+  H.stun.hidden = true; H.alarm.hidden = true; RACE.alarmT = 0; H.terms.textContent = ''; H.revWarn.hidden = true;
+  sarpReset(); H.brainrot.textContent = ''; H.glasses.hidden = true; H.frost.hidden = true; H.darkfx.hidden = true; NFX.dark = 0; NFX.ice = 0;
+  H.hud.classList.remove('wet', 'darkown'); quizUI(null);
 }
 function spawnTerm() {
   const el = document.createElement('span');
-  el.textContent = pick(PHYSICS_TERMS);
+  el.textContent = pick(MATH_TERMS);
   el.style.cssText = `left:${pick([rr(4, 26), rr(74, 96)]).toFixed(1)}%;top:${rr(12, 80).toFixed(1)}%;font-size:${rr(18, 38).toFixed(0)}px;color:${pick(['#ff6a2a', '#ffe14a', '#ff3b30', '#ffffff'])};--dx:${rr(-80, 80).toFixed(0)}px;--dy:${rr(-80, 80).toFixed(0)}px;--r0:${rr(-30, 30).toFixed(0)}deg;--r1:${rr(-60, 60).toFixed(0)}deg`;
   H.terms.appendChild(el);
   setTimeout(() => el.remove(), 1350);
@@ -4140,9 +4691,406 @@ function spawnTerm() {
 function tryPlayerAbility() {
   const p = RACE.player;
   if (!p || RACE.state !== 'race' || RACE.paused || p.finished) return;
-  if (RACE.check && !RACE.check.done) { pressCheck(); return; }
   if (useAbility(p)) return;
   toast(abilityBlock(p)); SFX.denied();
+}
+
+// =====================================================================
+//  VISUALS FOR THE NEWER POWERS: sweet barriers, sweet vomit and marks,
+//  cookie men, black holes, grey and pink trails, ice and darkness,
+//  dropped glasses, rage flames, and Sarp's brainrot posts and tricks
+// =====================================================================
+const NFX = { bars: [], runs: [], holes: [], core: null, ribbonTex: null, doruk: null, ada: null, adaPts: [], adaTarget: null, adaT: 0, ice: 0, dark: 0, marks: [] };
+
+function initNewFX() {
+  NFX.ribbonTex = texLabel(128, 16, (g, w, h) => {
+    const gr = g.createLinearGradient(0, 0, w, 0); gr.addColorStop(0, 'rgba(255,255,255,.95)'); gr.addColorStop(0.7, 'rgba(255,255,255,.55)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, w, h);
+    const ed = g.createLinearGradient(0, 0, 0, h); ed.addColorStop(0, 'rgba(0,0,0,1)'); ed.addColorStop(0.3, 'rgba(0,0,0,0)'); ed.addColorStop(0.7, 'rgba(0,0,0,0)'); ed.addColorStop(1, 'rgba(0,0,0,1)');
+    g.globalCompositeOperation = 'destination-out'; g.fillStyle = ed; g.fillRect(0, 0, w, h);
+  });
+  NFX.doruk = makeRibbon(0xb8c1cf, CH.doruk.passive1.width, 0.75);
+  NFX.ada = makeRibbon(0xff5aa8, 1.5, 0.8);
+  NFX.core = makeCoreMesh();
+  for (let i = 0; i < 3; i++) NFX.bars.push(makeBarrierMesh());
+  for (let i = 0; i < 2; i++) NFX.runs.push(makeRunMesh());
+  for (let i = 0; i < 2; i++) NFX.holes.push(makeHoleMesh());
+}
+
+// ---------- ribbons on the road (Doruk's grey trail for everybody, the pink trail only on Ada's screen) ----------
+function makeRibbon(color, width, opacity) {
+  const N = 40, pos = new Float32Array(N * 6), uv = new Float32Array(N * 4), idx = [];
+  for (let i = 0; i < N - 1; i++) { const o = i * 2; idx.push(o, o + 2, o + 1, o + 1, o + 2, o + 3); }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.BufferAttribute(uv, 2)); g.setIndex(idx);
+  const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: col(color), map: NFX.ribbonTex, transparent: true, opacity, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -6, toneMapped: false }));
+  m.frustumCulled = false; m.visible = false; m.renderOrder = 3; scene.add(m);
+  return { mesh: m, N, width };
+}
+function drawRibbon(r, pts, now, life) {
+  const n = Math.min(pts.length, r.N);
+  if (n < 2) { r.mesh.visible = false; return; }
+  const st = pts.length - n, pos = r.mesh.geometry.attributes.position.array, uv = r.mesh.geometry.attributes.uv.array;
+  for (let i = 0; i < r.N; i++) {
+    const k = Math.min(i, n - 1), p = pts[st + k], a = pts[st + Math.max(0, k - 1)], c = pts[st + Math.min(n - 1, k + 1)];
+    let dx = c.x - a.x, dz = c.z - a.z; const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l;
+    const hw = r.width / 2, nx = -dz * hw, nz = dx * hw, age = clamp((now - p.t) / life, 0, 1), o = i * 6;
+    pos[o] = p.x + nx; pos[o + 1] = 0.1; pos[o + 2] = p.z + nz; pos[o + 3] = p.x - nx; pos[o + 4] = 0.1; pos[o + 5] = p.z - nz;
+    uv[i * 4] = age; uv[i * 4 + 1] = 0; uv[i * 4 + 2] = age; uv[i * 4 + 3] = 1;
+  }
+  r.mesh.geometry.attributes.position.needsUpdate = true; r.mesh.geometry.attributes.uv.needsUpdate = true;
+  r.mesh.visible = true;
+}
+function updateTrails(dt) {
+  const racing = RACE.state === 'race' || RACE.state === 'finish';
+  const dk = racing && RACE.buses.find((b) => drvId(b) === 'doruk' && b.trail.length > 1);
+  if (dk) drawRibbon(NFX.doruk, dk.trail, RACE.t, CH.doruk.passive1.life); else NFX.doruk.mesh.visible = false;
+  // Ada sees the path of the driver right ahead of her in the standings, nobody else does
+  const p = RACE.player;
+  if (!(racing && p && drvId(p) === 'ada' && !p.finished)) { NFX.ada.mesh.visible = false; NFX.adaPts.length = 0; NFX.adaTarget = null; return; }
+  const st = standings(), i = st.indexOf(p), t = i > 0 ? st[i - 1] : null;
+  if (t !== NFX.adaTarget) { NFX.adaTarget = t; NFX.adaPts.length = 0; }
+  const life = CH.ada.passive2.trailLife;
+  while (NFX.adaPts.length && RACE.t - NFX.adaPts[0].t > life) NFX.adaPts.shift();
+  if (t && !t.finished) { NFX.adaT -= dt; if (NFX.adaT <= 0) { NFX.adaT = 0.06; const [x, z] = rearPoint(t); NFX.adaPts.push({ x, z, t: RACE.t }); } }
+  drawRibbon(NFX.ada, NFX.adaPts, RACE.t, life);
+}
+
+// ---------- Ali's sweet barriers ----------
+function makeBarrierMesh() {
+  const grp = new THREE.Group(), body = new THREE.Group(); grp.add(body);
+  const stripes = texLabel(256, 32, (g, w, h) => { g.fillStyle = '#ffffff'; g.fillRect(0, 0, w, h); g.fillStyle = '#ff3d8b'; for (let x = -32; x < w; x += 32) { g.beginPath(); g.moveTo(x, h); g.lineTo(x + 16, 0); g.lineTo(x + 32, 0); g.lineTo(x + 16, h); g.fill(); } });
+  const cane = new THREE.MeshLambertMaterial({ map: stripes });
+  for (const y of [0.55, 1.05]) { const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.17, BAR_W, 14), cane); bar.rotation.z = Math.PI / 2; bar.position.y = y; bar.castShadow = true; body.add(bar); }
+  const post = new THREE.MeshLambertMaterial({ color: col(0xffe6f1) });
+  for (const x of [-BAR_W / 2 + 0.2, BAR_W / 2 - 0.2]) { const pp = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.18, 1.3, 10), post); pp.position.set(x, 0.65, 0); pp.castShadow = true; body.add(pp); }
+  const dough = new THREE.MeshLambertMaterial({ color: col(0xd9954a) }), icing = new THREE.MeshLambertMaterial({ color: col(0xff7ab6) }), choc = new THREE.MeshLambertMaterial({ color: col(0x6b3a1e) });
+  for (let i = 0; i < 3; i++) {
+    const d = new THREE.Group(); d.position.set(-1.1 + i * 1.1, 1.55, 0); d.rotation.x = -Math.PI / 2 + 0.25;   // icing up
+    d.add(new THREE.Mesh(new THREE.TorusGeometry(0.34, 0.16, 10, 20), dough));
+    const ic = new THREE.Mesh(new THREE.TorusGeometry(0.34, 0.12, 8, 20), i === 1 ? choc : icing); ic.position.z = 0.07; d.add(ic);
+    body.add(d);
+  }
+  const ringG = new THREE.RingGeometry(2.2, 2.55, 40); ringG.rotateX(-Math.PI / 2);
+  const ring = new THREE.Mesh(ringG, new THREE.MeshBasicMaterial({ color: col(0xff7ab6), transparent: true, opacity: 0.7, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
+  ring.position.y = 0.08; ring.renderOrder = 3; grp.add(ring);
+  grp.visible = false; grp.userData = { used: false, body, ring }; scene.add(grp);
+  return grp;
+}
+function takeBarrierMesh() { let m = NFX.bars.find((x) => !x.userData.used); if (!m) { m = makeBarrierMesh(); NFX.bars.push(m); } m.userData.used = true; return m; }
+function freeBarrier(bar) { if (bar.mesh) { bar.mesh.visible = false; bar.mesh.userData.used = false; } }
+function sweetsBurst(bar) {
+  for (let i = 0; i < 8; i++) iconAt(i % 2 ? 'donut' : 'candy', bar.x + rr(-1.5, 1.5), 1.2, bar.z + rr(-1, 1), rr(-5, 5), rr(4, 8), rr(-5, 5), 1, rr(0.8, 1.2), 12);
+  for (let i = 0; i < 4; i++) puff(bar.x + rr(-1.5, 1.5), 0.8, bar.z + rr(-1, 1), SMOKE, 1, 3, 0.6, 1);
+}
+
+// ---------- Ali's sweet vomit (sprinkles and candy, never gross) and the sweet marks ----------
+function vomitFX(b, dt) {
+  b.fx.vomT = (b.fx.vomT || 0) - dt;
+  if (b.fx.vomT > 0 || camVol(b) <= 0) return;
+  b.fx.vomT = 0.035;
+  const fx = Math.sin(b.yaw), fz = Math.cos(b.yaw), nx = b.x + fx * (b.halfL + 0.3), nz = b.z + fz * (b.halfL + 0.3), sp = Math.max(0, b.fwd);
+  for (let i = 0; i < 2; i++) {
+    const a = b.yaw + rr(-0.5, 0.5), v = rr(12, 20);
+    iconAt(pick(['sprinkle', 'candy', 'sprinkle', 'donut']), nx, b.def.dim.H * 0.55, nz, Math.sin(a) * v + fx * sp, rr(1, 4), Math.cos(a) * v + fz * sp, 0.6, rr(0.5, 0.9), 9);
+  }
+  puff(nx + fx * 2, 1.2, nz + fz * 2, PINK, 0.8, 3, 0.5, 0.4);
+}
+const PINK = new THREE.Color(0xffa8d2);
+function markSprite(b) {
+  if (b.fx.markSpr) return b.fx.markSpr;
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: iconTex('donut'), transparent: true, depthWrite: false }));
+  s.scale.set(1.5, 1.5, 1); s.position.set(0, b.m.P.H + 4.2, 0); s.renderOrder = 6; s.visible = false; b.m.grp.add(s);
+  return (b.fx.markSpr = s);
+}
+
+// ---------- Ataberk's cookie men ----------
+function cookieManGeo() {
+  const parts = [];
+  const brown = 0xb86b2c, icing = 0xffffff;
+  parts.push([new THREE.SphereGeometry(0.34, 12, 10).translate(0, 1.55, 0), brown]);
+  parts.push([boxAt(0.62, 0.72, 0.24, 0, 0.98, 0), brown]);
+  parts.push([boxAt(0.2, 0.55, 0.22, -0.18, 0.36, 0), brown], [boxAt(0.2, 0.55, 0.22, 0.18, 0.36, 0), brown]);
+  parts.push([boxAt(0.62, 0.18, 0.2, -0.42, 1.12, 0, 0, 0, 0.5), brown], [boxAt(0.62, 0.18, 0.2, 0.42, 1.12, 0, 0, 0, -0.5), brown]);
+  for (const y of [0.85, 1.05]) parts.push([new THREE.SphereGeometry(0.05, 6, 5).translate(0, y, 0.13), icing]);
+  for (const x of [-0.11, 0.11]) parts.push([new THREE.SphereGeometry(0.05, 6, 5).translate(x, 1.62, 0.31), 0x222222]);
+  parts.push([boxAt(0.2, 0.04, 0.03, 0, 1.46, 0.32), icing]);
+  return mergeColored(parts);
+}
+function makeCookieGroup() {
+  const grp = new THREE.Group(), geo = cookieManGeo(), mat = VCMAT(), men = [];
+  for (const x of [-2.2, 0, 2.2]) { const m = new THREE.Mesh(geo, mat); m.position.x = x; m.castShadow = true; m.scale.setScalar(1.6); grp.add(m); men.push(m); }
+  grp.userData.men = men;
+  return grp;
+}
+function makeRunMesh() { const g = makeCookieGroup(); g.visible = false; g.userData.used = false; scene.add(g); return g; }
+function takeRunFX() { let m = NFX.runs.find((x) => !x.userData.used); if (!m) { m = makeRunMesh(); NFX.runs.push(m); } m.userData.used = true; m.visible = true; return m; }
+function freeRun(r) { if (r.fx) { r.fx.visible = false; r.fx.userData.used = false; } }
+function updateRuns(time) {
+  for (const r of RUNS) {
+    TRACK.pointAt(r.s, r.d, TMP);
+    r.fx.position.set(TMP.x, 0, TMP.z); r.fx.rotation.y = TMP.yaw;
+    r.fx.userData.men.forEach((m, i) => { m.position.y = Math.abs(Math.sin(time * 16 + i)) * 0.5; m.rotation.z = Math.sin(time * 16 + i) * 0.25; });
+  }
+}
+
+// ---------- Doruk's black hole ----------
+function makeCoreMesh() {
+  const grp = new THREE.Group();
+  grp.add(new THREE.Mesh(new THREE.SphereGeometry(0.5, 16, 12), new THREE.MeshBasicMaterial({ color: col(0x050308) })));
+  const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex(), color: col(0xa46bff), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
+  glow.scale.set(2.6, 2.6, 1); grp.add(glow);
+  grp.visible = false; scene.add(grp);
+  return grp;
+}
+let GLOW_TEX = null;
+function glowTex() {
+  if (!GLOW_TEX) GLOW_TEX = texLabel(64, 64, (g) => { const gr = g.createRadialGradient(32, 32, 4, 32, 32, 31); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.35, 'rgba(255,255,255,.5)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, 64, 64); });
+  return GLOW_TEX;
+}
+function makeHoleMesh() {
+  const grp = new THREE.Group(), R = CH.doruk.ability.radius * BUSLEN;
+  const swirl = texLabel(256, 256, (g) => {
+    g.translate(128, 128);
+    const gr = g.createRadialGradient(0, 0, 10, 0, 0, 126); gr.addColorStop(0, 'rgba(0,0,0,.95)'); gr.addColorStop(0.45, 'rgba(40,10,80,.6)'); gr.addColorStop(1, 'rgba(40,10,80,0)');
+    g.fillStyle = gr; g.beginPath(); g.arc(0, 0, 126, 0, 7); g.fill();
+    g.strokeStyle = 'rgba(190,140,255,.55)'; g.lineWidth = 5;
+    for (let k = 0; k < 5; k++) { g.beginPath(); for (let a = 0; a < 5; a += 0.1) { const r = 18 + a * 21; g.lineTo(Math.cos(a + k * 1.256) * r, Math.sin(a + k * 1.256) * r); } g.stroke(); }
+  });
+  const discG = new THREE.CircleGeometry(R, 48); discG.rotateX(-Math.PI / 2);
+  const disc = new THREE.Mesh(discG, new THREE.MeshBasicMaterial({ map: swirl, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -8, polygonOffsetUnits: -8 }));
+  disc.position.y = 0.1; disc.renderOrder = 3; grp.add(disc);
+  const ball = new THREE.Mesh(new THREE.SphereGeometry(1.6, 24, 16), new THREE.MeshBasicMaterial({ color: col(0x000000) })); ball.position.y = 2.4; grp.add(ball);
+  const ringTex = texLabel(256, 16, (g, w, h) => { const gr = g.createLinearGradient(0, 0, w, 0); gr.addColorStop(0, '#ffcf7a'); gr.addColorStop(0.5, '#ff6a2a'); gr.addColorStop(1, '#a46bff'); g.fillStyle = gr; g.fillRect(0, 0, w, h); });
+  const ringG = new THREE.RingGeometry(2.0, 4.3, 64); ringG.rotateX(-Math.PI / 2);
+  const ring = new THREE.Mesh(ringG, new THREE.MeshBasicMaterial({ map: ringTex, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
+  ring.position.y = 2.4; ring.rotation.x = 0.8; grp.add(ring);
+  const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex(), color: col(0x7a3cff), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
+  glow.scale.set(9, 9, 1); glow.position.y = 2.4; grp.add(glow);
+  grp.visible = false; grp.userData = { used: false, disc, ring, ball, glow }; scene.add(grp);
+  return grp;
+}
+function takeHoleFX() { let m = NFX.holes.find((x) => !x.userData.used); if (!m) { m = makeHoleMesh(); NFX.holes.push(m); } m.userData.used = true; return m; }
+function placeHoleFX(h) { h.fx.position.set(h.x, 0, h.z); h.fx.scale.setScalar(0.05); h.fx.visible = true; }
+function hideHole(h) { if (h.fx) { h.fx.visible = false; h.fx.userData.used = false; } for (let i = 0; i < 6; i++) puff(h.x + rr(-2, 2), 2, h.z + rr(-2, 2), SMOKE, 1, 4, 0.7, 1.5); }
+function updateHoles(dt, time) {
+  for (const h of HOLES) {
+    const u = h.fx.userData, age = h.max - h.t, k = Math.min(1, age / 0.35) * Math.min(1, h.t / 0.35);
+    h.fx.scale.setScalar(Math.max(0.05, k));
+    u.disc.rotation.y -= dt * 2.2; u.ring.rotation.y += dt * 3; u.glow.material.opacity = 0.55 + Math.sin(time * 9) * 0.2;
+    if (Math.random() < 0.5 && camVol(h) > 0) { const a = rr(0, 6.28), r = rr(5, 10); iconAt('spark', h.x + Math.cos(a) * r, rr(0.5, 3), h.z + Math.sin(a) * r, -Math.cos(a) * r * 1.6, 0.5, -Math.sin(a) * r * 1.6, 0.55, 0.5, 0); }
+  }
+  // the core in flight (from our own Doruk, or a friend's as reported by their device)
+  const dk = RACE.buses.find((b) => b.ab.key === 'core' && b.ab.core);
+  NFX.core.visible = !!dk;
+  if (dk) { const C = dk.ab.core; NFX.core.position.set(C.x, 1.4 + Math.sin(Math.min(1, C.age * 2.5) * Math.PI) * 1.2, C.z); NFX.core.rotation.y += dt * 8; }
+}
+
+// ---------- ice and darkness ----------
+function updateIceDark(dt) {
+  const p = RACE.player, racing = RACE.state === 'race' || RACE.state === 'finish';
+  const iceOn = racing && ICE.t > 0 ? 1 : 0;
+  NFX.ice = clamp(NFX.ice + (iceOn - NFX.ice) * Math.min(1, dt * 3), 0, 1); if (!iceOn && NFX.ice < 0.01) NFX.ice = 0;
+  applyWetLook();
+  const iceMe = iceOn && p && !p.aura && ICE.owner !== p;
+  if (H.frost.hidden === !!iceMe) H.frost.hidden = !iceMe;
+  const darkMe = racing && DARK.t > 0 && p && !p.aura && DARK.owner !== p ? 1 : 0;
+  const prev = NFX.dark;
+  NFX.dark = clamp(NFX.dark + (darkMe - NFX.dark) * Math.min(1, dt * 2.5), 0, 1); if (!darkMe && NFX.dark < 0.01) NFX.dark = 0;
+  if (NFX.dark !== prev) skyLook();
+  H.darkfx.style.opacity = (NFX.dark * 0.92).toFixed(3);
+  if (H.darkfx.hidden === NFX.dark > 0) H.darkfx.hidden = !(NFX.dark > 0);
+  // Elif's own screen gets a purple edge while everybody else is in the dark
+  const mine = racing && DARK.t > 0 && p && DARK.owner === p;
+  H.hud.classList.toggle('darkown', !!mine);
+}
+
+// ---------- dropped glasses, steam, flames, ghosts ----------
+function glassesFX(b) {
+  if (camVol(b) <= 0) return;
+  iconAt('glasses', b.x, b.def.dim.H + 0.6, b.z, rr(-2, 2), 5, rr(-2, 2), 1.1, 1.3, 16);
+  popText(b, 'MY GLASSES!', '#c9d1de');
+}
+function glassesUI() {
+  const el = H.glasses; el.classList.remove('fall'); void el.offsetWidth; el.classList.add('fall'); el.hidden = false;
+  SFX.glassFall();
+}
+function ghostPoof(x, z) {
+  for (let i = 0; i < 5; i++) iconAt('ghost', x + rr(-2, 2), 1.5 + rr(0, 2), z + rr(-2, 2), rr(-2, 2), rr(2, 4), rr(-2, 2), 1.2, rr(1, 1.5), -1);
+  for (let i = 0; i < 6; i++) puff(x + rr(-2, 2), 1.2, z + rr(-2.5, 2.5), GHOSTC, 1.2, 4.5, 0.9, 1.4);
+}
+const GHOSTC = new THREE.Color(0xc9b8ff);
+// cartoon flames on a raging (or burning) bus
+function flameSprites(b) {
+  if (b.fx.flames) return b.fx.flames;
+  const grp = new THREE.Group(), P = b.m.P, list = [];
+  for (let i = 0; i < 5; i++) {
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: iconTex('fire'), transparent: true, depthWrite: false, toneMapped: false }));
+    s.position.set((i - 2) * P.W * 0.2, P.H + 0.5, (i % 2 ? 1 : -1) * P.L * 0.22); s.renderOrder = 6; grp.add(s); list.push(s);
+  }
+  grp.visible = false; b.m.grp.add(grp);
+  return (b.fx.flames = { grp, list });
+}
+function updateFlames(b, on, big, time) {
+  const F = on || b.fx.flames ? flameSprites(b) : null;
+  if (!F) return;
+  F.grp.visible = on;
+  if (!on) return;
+  F.list.forEach((s, i) => { const k = (big ? 1.9 : 1.1) * (0.8 + 0.3 * Math.sin(time * 17 + i * 1.7)); s.scale.set(k, k * 1.5, 1); s.position.y = b.m.P.H + 0.4 + k * 0.55; });
+}
+
+// ---------- everything above, once a frame ----------
+function updateNewFX(dt, time) {
+  const racing = RACE.state === 'race' || RACE.state === 'finish';
+  for (const bar of BARRIERS) {
+    const u = bar.mesh.userData, age = bar.max - bar.t;
+    bar.mesh.scale.setScalar(Math.min(1, age * 5) * (bar.t < 1 ? Math.max(0.05, bar.t) : 1));
+    u.body.position.y = Math.abs(Math.sin(time * 3 + bar.id)) * 0.06; u.ring.material.opacity = 0.45 + Math.sin(time * 6) * 0.25;
+  }
+  updateRuns(time); updateHoles(dt, time); updateTrails(dt); updateIceDark(dt);
+  for (const b of RACE.buses) {
+    const fx = b.fx || (b.fx = {}), id = drvId(b);
+    // Ali's candy spray and the sweet marks
+    if (b.ab.key === 'vomit' && racing) vomitFX(b, dt);
+    const mk = racing && b.mark && b.mark.t > 0;
+    if (mk || fx.markSpr) { const s = markSprite(b); s.visible = !!mk; if (mk) { s.position.y = b.m.P.H + 4.2 + Math.sin(time * 5) * 0.25; s.material.rotation = Math.sin(time * 3) * 0.3; } }
+    // ShangaiMath's rage: big cartoon flames; a rival he hit burns (no damage) while it is slowed
+    const burning = !!(b.effects && b.effects.some((e) => e.key === 'burn')) || !!b.netBurn;
+    updateFlames(b, racing && (b.ab.key === 'rage' || burning), b.ab.key === 'rage', time);
+    if (burning && b.ab.key !== 'rage') { setRageGlow(b, true, 0.35 + Math.sin(time * 16) * 0.15); fx.burnGlow = true; }
+    else if (fx.burnGlow && b.ab.key !== 'rage') { setRageGlow(b, false); fx.burnGlow = false; }
+    // Saner's engine steams when it overheats
+    if (id === 'saner' && racing && (b.remote ? b.netHot : b.pv.hot)) { fx.steamT = (fx.steamT || 0) - dt; if (fx.steamT <= 0 && camVol(b) > 0) { fx.steamT = 0.06; const P = b.m.P, bx = Math.sin(b.yaw), bz = Math.cos(b.yaw); puff(b.x + bx * (P.L / 2 - 0.9) + rr(-0.6, 0.6), P.H + 0.2, b.z + bz * (P.L / 2 - 0.9) + rr(-0.6, 0.6), SMOKE, 1.2, 4.2, 1.1, 3.2); if (Math.random() < 0.02) popText(b, pick(['HOT!', 'PSSSHHH', 'TOO HOT!']), '#ff9d3c', 0.7); } }
+    // a friend's Doruk dropping his glasses, as reported by their device
+    if (b.remote && b.netGlasses && !fx.glassSeen) glassesFX(b);
+    fx.glassSeen = !!b.netGlasses;
+    // Saner running wild shakes
+    if (b.ab.key === 'wild' && racing) b.m.body.rotation.z += Math.sin(time * 40) * 0.015;
+  }
+}
+
+// =====================================================================
+//  SARP'S SCREEN: brainrot posts to like or close, and his chill-mood
+//  tricks (jumpscare, wobbly camera, glitch); at high speed a tilted
+//  camera, fake things beside the road and rivals that vanish for a moment
+// =====================================================================
+const SARP = { posts: [], nextT: 0, n: 0, vfx: '', vfxT: 0, vfxLeft: 0, fakeT: 0, hideT: 0, hidden: [], fakes: [], tiltSign: 1, wob: 0 };
+const POST_TAGS = ['@sigma.bus', '@aura.farmer', '@ohio.driver', '@brainrot.fm', '@skibidi.lane', '@rizz.school', '@npc.energy', '@gyatt.garage'];
+function sarpReset() {
+  for (const p of SARP.posts) p.el.remove();
+  SARP.posts.length = 0; SARP.nextT = rr(3, 6); SARP.vfx = ''; SARP.vfxLeft = 0; SARP.vfxT = rr(CH.sarp.passive2.vfxEvery[0], CH.sarp.passive2.vfxEvery[1]);
+  SARP.fakeT = rr(3, 6); SARP.hideT = rr(4, 8); SARP.tiltSign = rnd() < 0.5 ? -1 : 1;
+  for (const h of SARP.hidden) if (h.b.m) h.b.m.grp.visible = true;
+  SARP.hidden.length = 0;
+  for (const f of SARP.fakes) f.spr.visible = false;
+  if (H.jumpscare) { H.jumpscare.hidden = true; H.glitchfx.hidden = true; }
+}
+const openPosts = () => SARP.posts.filter((p) => !p.liked).length;
+function sarpPostOpen() { return SARP.posts.some((p) => !p.liked); }
+function likeNewestPost(b) { const p = SARP.posts.filter((x) => !x.liked).pop(); if (p) likePost(p); }
+function closeNewestPost() { const p = SARP.posts.filter((x) => !x.liked).pop(); if (p) { closePost(p); return true; } return false; }
+// a free spot on the screen: anywhere, even over the road, but never over the speedometer or the driving controls
+function postSpot(w, h) {
+  const keep = [document.querySelector('.dash'), H.touch && !H.touch.hidden ? H.touch : null, $('pauseBtn')].concat(TOUCH ? ['tL', 'tR', 'tGas', 'tBrake', 'tBoost', 'tDrift', 'tBox'].map($) : []);
+  const rects = keep.filter((el) => el && el.offsetParent !== null).map((el) => el.getBoundingClientRect()).filter((r) => r.width > 0 && r.width < innerWidth * 0.95);
+  const hit = (x, y) => rects.some((r) => x < r.right + 8 && x + w > r.left - 8 && y < r.bottom + 8 && y + h > r.top - 8) || SARP.posts.some((p) => x < p.x + p.w && x + w > p.x && y < p.y + p.h && y + h > p.y);
+  for (let i = 0; i < 40; i++) { const x = rr(8, Math.max(9, innerWidth - w - 8)), y = rr(8, Math.max(9, innerHeight - h - 8)); if (!hit(x, y)) return [x, y]; }
+  return [8, 8];
+}
+function spawnPost(show) {
+  const [emo, cap] = pick(BRAINROT), narrow = innerWidth < 640, w = narrow ? 150 : 196, h = narrow ? 178 : 226, cost = CH.sarp.ability.cost;
+  const [x, y] = postSpot(w, h), el = document.createElement('div');
+  el.className = 'post';
+  el.style.cssText = 'left:' + x.toFixed(0) + 'px;top:' + y.toFixed(0) + 'px;width:' + w + 'px;--tilt:' + rr(-5, 5).toFixed(1) + 'deg';
+  el.innerHTML = '<div class="post-head"><i></i><b></b><button type="button" class="post-x" aria-label="Close post">×</button></div><div class="post-img"></div><div class="post-cap"></div><div class="post-foot"><button type="button" class="post-like">♥ Like · ' + cost + '</button></div><u class="post-time"><s></s></u>';
+  el.querySelector('b').textContent = pick(POST_TAGS); el.querySelector('.post-img').textContent = emo; el.querySelector('.post-cap').textContent = cap;
+  const post = { id: ++SARP.n, el, t: show, max: show, liked: false, x, y, w, h };
+  const stop = (e) => { e.preventDefault(); e.stopPropagation(); };
+  el.querySelector('.post-x').addEventListener('pointerdown', (e) => { stop(e); closePost(post); });
+  el.querySelector('.post-like').addEventListener('pointerdown', (e) => { stop(e); likePost(post); });
+  el.addEventListener('pointerdown', (e) => e.stopPropagation());
+  H.brainrot.appendChild(el); SARP.posts.push(post);
+  SFX.glitch(); SFX.glitch();
+}
+function likePost(post) {
+  if (post.liked) return;
+  if (!sarpLike(RACE.player)) { post.el.classList.remove('nope'); void post.el.offsetWidth; post.el.classList.add('nope'); return; }
+  post.liked = true; post.el.classList.add('liked'); post.el.querySelector('.post-like').textContent = '♥ Liked!';
+  setTimeout(() => closePost(post), 450);
+}
+function closePost(post) {
+  const i = SARP.posts.indexOf(post); if (i < 0) return;
+  SARP.posts.splice(i, 1); post.el.remove();
+}
+function updateSarp(dt) {
+  const p = RACE.player, a = CH.sarp.ability, p1 = CH.sarp.passive1, p2 = CH.sarp.passive2, tier = sarpTier(p);
+  // posts: more often, and two at a time, once the speed thresholds are passed
+  const every = tier >= 3 ? a.t3Every : tier >= 1 ? a.t1Every : p1.every, max = tier >= 1 ? a.t1Max : p1.max, show = tier >= 1 ? a.t1Show : p1.show;
+  SARP.nextT -= dt;
+  if (SARP.nextT <= 0) { if (openPosts() < max) { spawnPost(show); SARP.nextT = rr(every[0], every[1]); } else SARP.nextT = rr(0.8, 1.6); }
+  for (let i = SARP.posts.length - 1; i >= 0; i--) {
+    const post = SARP.posts[i]; if (post.liked) continue;
+    post.t -= dt; post.el.querySelector('.post-time s').style.width = (clamp(post.t / post.max, 0, 1) * 100).toFixed(1) + '%';
+    if (post.t <= 0) closePost(post);   // missing a post costs nothing
+  }
+  // chill mood: one short trick at a time, never one that hides the whole road
+  if (SARP.vfx) {
+    SARP.vfxLeft -= dt;
+    if (SARP.vfxLeft <= 0) { if (SARP.vfx === 'jumpscare') H.jumpscare.hidden = true; if (SARP.vfx === 'glitch') H.glitchfx.hidden = true; SARP.vfx = ''; SARP.vfxT = rr(p2.vfxEvery[0], p2.vfxEvery[1]); }
+  } else {
+    SARP.vfxT -= dt;
+    if (SARP.vfxT <= 0) {
+      const r = rnd(), kind = r < p2.jumpscareShare ? 'jumpscare' : r < p2.jumpscareShare + p2.drunkShare ? 'drunk' : 'glitch';
+      SARP.vfx = kind; SARP.vfxLeft = p2[kind];
+      if (kind === 'jumpscare') { H.jumpscare.hidden = false; H.jumpscare.classList.remove('go'); void H.jumpscare.offsetWidth; H.jumpscare.classList.add('go'); SFX.jumpscare(); }
+      if (kind === 'glitch') { H.glitchfx.hidden = false; SFX.glitch(); SFX.glitch(); SFX.glitch(); }
+      if (kind === 'drunk') SFX.hic();
+    }
+  }
+  // paranormal reality: fake things beside the road, real rivals vanishing for a blink
+  if (tier >= 3) {
+    SARP.fakeT -= dt; if (SARP.fakeT <= 0) { SARP.fakeT = rr(a.fakeEvery[0], a.fakeEvery[1]); spawnFake(p); }
+    SARP.hideT -= dt; if (SARP.hideT <= 0) { SARP.hideT = rr(a.hideEvery[0], a.hideEvery[1]); hideSomething(p, a); }
+  }
+  for (let i = SARP.hidden.length - 1; i >= 0; i--) { const h = SARP.hidden[i]; h.t -= dt; if (h.t <= 0) { h.b.m.grp.visible = true; SARP.hidden.splice(i, 1); } }
+  for (const f of SARP.fakes) if (f.spr.visible) { f.t -= dt; f.spr.material.opacity = clamp(Math.min(f.t, f.max - f.t) * 4, 0, 1) * 0.95; if (f.t <= 0) f.spr.visible = false; }
+}
+const FAKES = [['🗿', 'MOAI'], ['🦈👟', 'SHARK'], ['🐊✈️', 'CROCO'], ['🥁🪵', 'TUNG'], ['🐸☕', 'FROG'], ['🍌📞', 'BANANA'], ['🚌👻', 'BUS?']];
+function fakeSprite() {
+  let f = SARP.fakes.find((x) => !x.spr.visible);
+  if (f) return f;
+  f = { spr: new THREE.Sprite(new THREE.SpriteMaterial({ transparent: true, depthWrite: false })), t: 0, max: 1, tex: {} };
+  f.spr.visible = false; f.spr.renderOrder = 5; scene.add(f.spr); SARP.fakes.push(f);
+  return f;
+}
+function spawnFake(p) {
+  const [emo, word] = pick(FAKES), f = fakeSprite();
+  const key = emo; if (!f.tex[key]) f.tex[key] = texLabel(256, 256, (g) => { g.font = '170px "Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(emo, 128, 118); g.font = `italic 900 34px ${FONT_D}`; g.fillStyle = '#fff'; g.strokeStyle = '#000'; g.lineWidth = 6; g.strokeText(word, 128, 232); g.fillText(word, 128, 232); });
+  f.spr.material.map = f.tex[key]; f.spr.material.needsUpdate = true;
+  const side = rnd() < 0.5 ? -1 : 1;
+  TRACK.pointAt(p.q.s + rr(40, 75), side * (HW + rr(2.2, 4)), TMP);
+  f.spr.position.set(TMP.x, 3.2, TMP.z); f.spr.scale.set(6, 6, 1); f.max = rr(1.2, 1.8); f.t = f.max; f.spr.material.opacity = 0; f.spr.visible = true;
+}
+// at most a quarter of the real things in view vanish at once, each for a blink (they are still there to crash into)
+function hideSomething(p, a) {
+  camera.getWorldDirection(V3);
+  const seen = RACE.buses.filter((b) => b !== p && b.m.grp.visible && Math.hypot(b.x - camera.position.x, b.z - camera.position.z) < 250 && ((b.x - camera.position.x) * V3.x + (b.z - camera.position.z) * V3.z) > 0);
+  const n = Math.floor(seen.length * a.hideShare) - SARP.hidden.length;
+  for (let i = 0; i < n; i++) { const b = seen.splice(Math.floor(rnd() * seen.length), 1)[0]; if (!b) break; b.m.grp.visible = false; SARP.hidden.push({ b, t: a.hideTime }); }
+}
+// the camera: tilted from the second threshold, wobbly while "drunk", jittery in a glitch
+function sarpCamFX(dt) {
+  const p = RACE.player; if (!p || drvId(p) !== 'sarp' || !(RACE.state === 'race' || RACE.state === 'finish')) return;
+  const a = CH.sarp.ability, tier = sarpTier(p);
+  let roll = 0, shift = 0;
+  if (tier >= 2) {
+    const deg = clamp(a.tiltMin + (p.permBonus - a.t2) / a.bonus * a.tiltPerLike, a.tiltMin, a.tiltMax);
+    SARP.wob += dt;
+    roll += SARP.tiltSign * (deg + Math.sin(SARP.wob * 0.7) * 2) * Math.PI / 180; shift += SARP.tiltSign * a.shift;
+  }
+  if (SARP.vfx === 'drunk') { const k = Math.sin(Math.PI * clamp(1 - SARP.vfxLeft / CH.sarp.passive2.drunk, 0, 1)); roll += Math.sin(clock * 3.1) * 0.16 * k; shift += Math.sin(clock * 2.3) * 1.4 * k; }
+  if (SARP.vfx === 'glitch') { shift += (Math.random() - 0.5) * 0.5; roll += (Math.random() - 0.5) * 0.05; }
+  if (shift) camera.translateX(shift);
+  if (roll) camera.rotateZ(roll);
 }
 
 // =====================================================================
@@ -4156,7 +5104,7 @@ function tryPlayerAbility() {
 //  drives that bus, which applies them (Sarp's aura and the stun guard are
 //  checked where they belong).
 // =====================================================================
-const NET_VERSION = 'sbr-online-6';
+const NET_VERSION = 'sbr-online-7';
 const NET = { on: false, host: false, racing: false, peer: null, conn: null, links: new Map(), code: '', my: '', players: [], laps: 6, diff: 1,
   sendT: 0, relayT: 0, beatT: 0, lastHost: 0, dropHits: new Map(), joining: false, attempt: 0, route: '', direct: false, seq: 0, seen: 0, track: 'anka', tyres: true, weather: 'dry', fc: null };
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -4225,7 +5173,7 @@ function netCreate() {
   onlineStatus('Creating a room…');
   const openRoom = () => {
     if (NET.attempt !== attempt || NET.on) return;
-    NET.on = true; NET.track = TDEF.id; NET.tyres = RACE.tyresPref; NET.weather = RACE.weatherPref;
+    NET.on = true; NET.track = TDEF.id; NET.tyres = RACE.tyresPref; NET.weather = RACE.weatherPref; NET.drift = RACE.driftPref;
     NET.players = [{ pid: NET.my, drv: RACE.drvIdx, bus: RACE.busIdx, host: true }];
     onlineStatus(''); renderLobby();
   };
@@ -4418,7 +5366,17 @@ function hostDrop(pid) {
   NET.links.delete(pid);
   NET.players = NET.players.filter((p) => p.pid !== pid);
   // a player who drops out of a race hands their bus to a bot
-  for (const b of RACE.buses) if (b.owner === pid) { b.owner = NET.my; b.remote = false; b.human = false; b.isPlayer = false; botTakeOver(b); toast(b.driver.nick + ' left: a bot takes over'); }
+  for (const b of RACE.buses) if (b.owner === pid) {
+    const left = b.driver.nick;
+    b.owner = NET.my; b.remote = false; b.human = false; b.isPlayer = false; botTakeOver(b);
+    // Sarp is never a bot: a bot with a free driver takes the bus over, on every device
+    if (!botDriver(b.driver)) {
+      const used = new Set(RACE.buses.map((x) => x.driver));
+      const di = DRIVERS.findIndex((d) => botDriver(d) && !used.has(d));
+      if (di >= 0) { swapDriver(b, di); netEvent(null, 'swap', { bus: busIdx(b), drv: di }); }
+    }
+    toast(left + ' left: a bot takes over');
+  }
   broadcastLobby();
 }
 function botTakeOver(b) {
@@ -4427,7 +5385,13 @@ function botTakeOver(b) {
   b.ai.base = 1; b.vmul = D.vmul; b.ai.skill = D.skill; b.ai.greed = 0.8; b.ai.stopDec = {}; b.ai.lane = b.q.d; b.ai.abDelay = 2;
   b.net = null; b.netOff = null;
 }
-function lobbyMsg() { return { k: 'lobby', n: ++NET.seq, players: NET.players, laps: NET.laps, diff: NET.diff, track: NET.track, tyres: NET.tyres ? 1 : 0, wx: hostForecast(), racing: NET.racing }; }
+function lobbyMsg() { return { k: 'lobby', n: ++NET.seq, players: NET.players, laps: NET.laps, diff: NET.diff, track: NET.track, tyres: NET.tyres ? 1 : 0, drift: NET.drift ? 1 : 0, wx: hostForecast(), racing: NET.racing }; }
+// a driver change in the middle of a race (a leaving Sarp player's bus): the bus keeps its place
+function swapDriver(b, di) {
+  const d = DRIVERS[clamp(di | 0, 0, DRIVERS.length - 1)];
+  const keep = { bank: b.bank, students: b.students };
+  setDriver(b, d); resetAbil(b); b.bank = keep.bank; b.students = keep.students;
+}
 // the host's forecast for the room (a new one when the weather, the length or the circuit changes)
 function hostForecast() {
   const key = NET.weather + ':' + NET.laps + ':' + NET.track;
@@ -4451,12 +5415,12 @@ function netSend(m) {
 // the grid: players keep the buses they picked, bots take the rest with the drivers nobody picked
 function hostStart() {
   if (!NET.host || NET.racing) return;
-  const free = shuffle(DRIVERS.map((d, i) => i).filter((i) => !NET.players.some((p) => p.drv === i)));
+  const free = shuffle(DRIVERS.map((d, i) => i).filter((i) => botDriver(DRIVERS[i]) && !NET.players.some((p) => p.drv === i)));   // bots never drive Sarp
   const entries = BUSES.map((b, bi) => {
     const h = NET.players.find((p) => p.bus === bi);
     return { bus: bi, drv: h ? h.drv : free.pop(), owner: h ? h.pid : NET.my, human: !!h };
   });
-  const m = { k: 'start', n: ++NET.seq, laps: NET.laps, diff: NET.diff, track: NET.track, tyres: NET.tyres ? 1 : 0, wx: hostForecast(), entries, order: shuffle(entries.map((e, i) => i)), goAt: +(4.4 + rr(0.5, 1.3)).toFixed(2) };
+  const m = { k: 'start', n: ++NET.seq, laps: NET.laps, diff: NET.diff, track: NET.track, tyres: NET.tyres ? 1 : 0, drift: NET.drift ? 1 : 0, wx: hostForecast(), entries, order: shuffle(entries.map((e, i) => i)), goAt: +(4.4 + rr(0.5, 1.3)).toFixed(2) };
   NET.racing = true;
   netSend(m); netStartRace(m);
 }
@@ -4469,6 +5433,7 @@ function clientData(m) {
     NET.players = Array.isArray(m.players) ? m.players : []; NET.laps = m.laps; NET.diff = m.diff;
     if (typeof m.track === 'string') { NET.track = trackById(m.track).id; if (!NET.racing && NET.track !== TDEF.id) switchTrack(NET.track, false); }
     if (m.tyres != null) NET.tyres = !!m.tyres;
+    if (m.drift != null) NET.drift = !!m.drift;
     if (m.wx) { NET.fc = cleanForecast(m.wx); NET.weather = NET.fc.mode; if (!NET.racing) FC = NET.fc; }
     // a friend who left mid-race: the host's bot drives their bus now
     if (NET.racing) for (const b of RACE.buses) if (b.remote && b.owner !== roomPeerId(NET.code) && !NET.players.some((p) => p.pid === b.owner)) { b.owner = roomPeerId(NET.code); b.human = false; b.net = null; b.netOff = null; }
@@ -4494,7 +5459,7 @@ function netStartRace(m) {
   SFX.init();
   if (!m || !Array.isArray(m.entries) || !m.entries.some((e) => e.human && e.owner === NET.my)) { onlineStatus('The race started before you joined. You are in for the next one.', true); return; }
   NET.racing = true; NET.live = false; RACE.paused = false;
-  RACE.laps = [3, 6, 10].includes(m.laps) ? m.laps : 6; RACE.diff = clamp(fin(m.diff, 1), 0, 2) | 0; RACE.tyres = !!m.tyres;
+  RACE.laps = [3, 6, 10].includes(m.laps) ? m.laps : 6; RACE.diff = clamp(fin(m.diff, 1), 0, 2) | 0; RACE.tyres = !!m.tyres; RACE.drift = !!m.drift;
   fadeTo(() => {
     const tr = trackById(m.track);
     if (TDEF !== tr) { buildWorld(tr); afterWorld(); }
@@ -4546,13 +5511,16 @@ function backToLobby() {
 function busState(b) {
   const ab = b.ab || {};
   const fl = (b.braking ? 1 : 0) | (b.boosting ? 2 : 0) | (b.stunT > 0 ? 4 : 0) | (b.holdT > 0 ? 8 : 0) | (b.stunGuardT > 0 ? 16 : 0) | (b.ghostT > 0 ? 32 : 0) |
-    (b.penStopT > 0 ? 64 : 0) | (b.pit ? 128 : 0) | (b.effects && b.effects.some((e) => e.key === 'rainbow') ? 256 : 0) | (b.fx && b.fx.plantT > 0 ? 512 : 0) | (b.finished ? 1024 : 0) | (b.pitStopT > 0 ? 2048 : 0);
+    (b.penStopT > 0 ? 64 : 0) | (b.pit ? 128 : 0) | (b.effects && b.effects.some((e) => e.key === 'rainbow') ? 256 : 0) | (b.fx && b.fx.plantT > 0 ? 512 : 0) | (b.finished ? 1024 : 0) | (b.pitStopT > 0 ? 2048 : 0) |
+    (b.effects && b.effects.some((e) => e.key === 'burn') ? 4096 : 0) | (b.glassesT > 0 ? 8192 : 0) | (b.pv && b.pv.hot ? 16384 : 0);
   const s = {
     i: busIdx(b), h: NET.host ? 1 : 0, t: Math.round(performance.now()), x: r2(b.x), z: r2(b.z), y: +b.yaw.toFixed(3), yr: +(b.yawRate || 0).toFixed(3), vx: r2(b.vx), vz: r2(b.vz), f: r2(b.fwd), st: r2(b.ctrl.steer), sl: r2(b.slip), fy: r2(b.flyY || 0),
     lp: b.lap, pr: r2(b.progress), ft: +(b.finishTime || 0).toFixed(3), fp: b.finishPen || 0, bst: isFinite(b.best) ? +b.best.toFixed(3) : 0,
     fl, stu: b.students || 0, tc: b.tyre ? b.tyre.c : 'M', tw: b.tyre ? Math.round(b.tyre.wear) : 100, ps: b.pitStops || 0, sn: (b.stints || []).join(''), rt: NET.host ? 0 : Math.round((NET.rtt || 0) * 1000),
     ab: ab.key || '', ai: ab.id || 0, at: r2(ab.t || 0), am: r2(ab.max || 0),
+    gs: b.sis === 'zeynep' ? 1 : 2, mk: b.mark ? r2(b.mark.t) : 0, mu: b.mark ? b.mark.use : 0,
   };
+  if (ab.key === 'core' && ab.core) s.core = [r2(ab.core.x), r2(ab.core.z), r2(ab.core.age), r2(ab.core.life)];
   if (ab.key === 'ball' && ab.ball) s.ball = [r2(ab.ball.x), r2(ab.ball.z), r2(ab.ball.age), r2(ab.ball.life)];
   if (ab.key === 'rage' && ab.tier) s.tier = ab.tier.min;
   return s;
@@ -4668,7 +5636,12 @@ function remoteStep(b, dt) {
   if (b.ab.key !== key || b.ab.id !== n.ai) b.ab = { key, t: 0, max: 0, id: n.ai, hits: new Set() };
   b.ab.t = fin(n.at, 0); b.ab.max = fin(n.am, 0);
   if (key === 'ball' && Array.isArray(n.ball)) b.ab.ball = { x: n.ball[0], z: n.ball[1], age: n.ball[2], life: n.ball[3] };
-  if (key === 'rage') { const T = CH.doruk.ability.tiers; b.ab.tier = T.find((t) => t.min === n.tier) || T[0]; }
+  if (key === 'rage') { const T = CH.shangai.ability.tiers; b.ab.tier = T.find((t) => t.min === n.tier) || T[0]; }
+  if (key === 'core' && Array.isArray(n.core)) b.ab.core = { x: n.core[0], z: n.core[1], age: n.core[2], life: n.core[3] };
+  // the newer powers, for the visuals and for the bites checked here
+  if (drvId(b) === 'sisters') { const who = n.gs === 1 ? 'zeynep' : 'elif'; if (b.sis !== who) { b.sis = who; setSisterFace(b); } }
+  b.mark = fin(n.mk, 0) > 0 ? { t: fin(n.mk, 0), max: CH.ali.ability.mark, by: null, use: n.mu | 0 } : null;
+  b.netBurn = !!(f & 4096); b.netGlasses = !!(f & 8192); b.netHot = !!(f & 16384);
 }
 
 // ---------- abilities that hit a bus driven somewhere else ----------
@@ -4700,12 +5673,8 @@ function handleEvent(m) {
       popText(t, (kind === 'bonus' ? '+' : '−') + pct(amt) + ' ' + String(m.label || '').toUpperCase(), kind === 'bonus' ? '#7dff6a' : '#ff8c7a');
       if (t.isPlayer) toast((kind === 'bonus' ? 'Gift from ' : 'Hit by ') + nick + ': ' + (kind === 'bonus' ? '+' : '−') + pct(amt) + ' for ' + time + ' s');
     } else popText(t, 'IMMUNE', '#9fe8ff');
-  } else if (m.op === 'bite' && t && !t.remote && src) {
-    if (!canBite(t)) return;
-    if (t.ab.key === 'song') cutSong(t, '', true);
-    t.holdT = clamp(fin(m.dur, 1.5), 0, 5); t.vx = t.vz = 0; t.stopPen = Math.max(t.stopPen, clamp(fin(m.pen, 2), 0, 10));
-    chompFX(src, t); SFX.chomp(camVol(t));
-    if (t.isPlayer) showMsg('CHOMP!', nick + ' bit you: ' + penaltyWhere(t.stopPen), 'warn', 2.2);
+  } else if (m.op === 'mark' && t && !t.remote && src) {
+    setMark(t, src, m.use | 0, clamp(fin(m.t, 10), 0, 30));
   } else if (m.op === 'throw' && t && !t.remote && src) {
     if (t.aura || t.finished || t.holdT > 0 || t.throwT > 0) return;
     if (t.ab.key === 'song') cutSong(t, '', true);
@@ -4715,23 +5684,26 @@ function handleEvent(m) {
   } else if (m.op === 'rain' && src) {
     RAIN.t = clamp(fin(m.time, 6), 0, 30); RAIN.max = RAIN.t; RAIN.loss = clamp(fin(m.loss, 0.2), 0, 0.9); RAIN.owner = src; SFX.thunder();
     const p = RACE.player;
-    if (p) toast(p.aura ? 'Rain! Your happy aura keeps you dry' : 'Rain from ' + nick + '! −' + pct(RAIN.loss) + ' grip');
+    if (p) toast(p.aura ? 'Rain! Your chill mood keeps you dry' : 'Rain from ' + nick + '! −' + pct(RAIN.loss) + ' grip');
   } else if (m.op === 'drop' && src) {
     const key = (m.src | 0) + ':' + (m.use | 0);
     if (!NET.dropHits.has(key)) NET.dropHits.set(key, new Set());
     const d = { x: fin(m.x, 0), z: fin(m.z, 0), life: CH.irem.ability.coffee.dropLife, owner: src, hits: NET.dropHits.get(key), mesh: takeDropMesh() };
     d.mesh.position.set(d.x, 0.075, d.z); d.mesh.rotation.y = rr(0, 6.28); d.mesh.scale.setScalar(0.3); d.mesh.visible = true;
     DROPS.push(d);
-  } else if (m.op === 'check' && src) checkFromRemote(src);
-}
-// Ali's reaction check reached this device: the player here gets the check, bots here roll the dice
-function checkFromRemote(by) {
-  const a = CH.ali.ability.mid, bots = [];
-  for (const o of RACE.buses) {
-    if (o === by || o.remote || o.finished || o.aura) continue;
-    if (o.isPlayer) openCheck(by); else bots.push({ bus: o, pass: rnd() < a.botPass });
-  }
-  if (bots.length) RACE.extChecks.push({ t: 0, max: a.checkTime, by, bots });
+  } else if (m.op === 'bar' && src) addBarrier(m.id | 0, fin(m.s, 0), clamp(fin(m.d, 0), -HW, HW), clamp(fin(m.life, 14), 0, 60), src);
+  else if (m.op === 'barx') { const bar = BARRIERS.find((x) => x.id === (m.id | 0)); if (bar) { removeBarrier(bar, false); sweetsBurst(bar); } }
+  else if (m.op === 'cookies' && src) startCookieRun(src, { d: clamp(fin(m.d, 0), -HW, HW) }, true);
+  else if (m.op === 'ice' && src) {
+    ICE.t = clamp(fin(m.time, 5), 0, 30); ICE.max = ICE.t; ICE.loss = clamp(fin(m.loss, 0.6), 0, 0.9); ICE.owner = src; SFX.freeze();
+    const p = RACE.player;
+    if (p) toast(p.aura ? 'Ice! Your chill mood keeps your grip' : 'Ice from ' + nick + '! −' + pct(ICE.loss) + ' grip');
+  } else if (m.op === 'dark' && src) {
+    DARK.t = clamp(fin(m.time, 5), 0, 30); DARK.max = DARK.t; DARK.vision = clamp(fin(m.vision, 0.5), 0.1, 1); DARK.owner = src; SFX.ghost(1); ghostPoof(src.x, src.z);
+    const p = RACE.player;
+    if (p) { if (p.aura) toast('Darkness! Your chill mood keeps your eyes open'); else showMsg('Darkness!', nick + ' jumped ahead · you can\'t see far', 'warn', 1.8); }
+  } else if (m.op === 'hole' && src) formHole(src, fin(m.x, 0), fin(m.z, 0), m.id | 0, false);
+  else if (m.op === 'swap' && m.bus >= 0) { const bb = RACE.buses[m.bus | 0]; if (bb) swapDriver(bb, m.drv | 0); }
 }
 
 // the human in front, for the bots' rubber band
@@ -4797,13 +5769,14 @@ function renderLobby() {
   document.querySelectorAll('#onLaps button').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.v === NET.laps)));
   document.querySelectorAll('#onTrack button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === NET.track)));
   document.querySelectorAll('#onTyres button').forEach((b) => b.setAttribute('aria-pressed', String(!!+b.dataset.v === NET.tyres)));
+  document.querySelectorAll('#onDrift button').forEach((b) => b.setAttribute('aria-pressed', String(!!+b.dataset.v === !!NET.drift)));
   $('onStratWrap').hidden = !NET.tyres;
   if (NET.host) hostForecast();
   document.querySelectorAll('#onWeather button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === NET.weather)));
   const sk = NET.laps + TDEF.id + (NET.fc ? NET.fc.id : '');
   if (NET.tyres && NET.stratFor !== sk) { NET.stratFor = sk; FC = NET.fc; renderStrategy($('onStrat'), NET.laps); }
   document.querySelectorAll('#onDiff button').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.v === NET.diff)));
-  $('onWait').textContent = 'Waiting for the host to start: ' + trackById(NET.track).name + ' · ' + NET.laps + ' laps · ' + DIFF[NET.diff].name + ' bots · tyres and pit stops ' + (NET.tyres ? 'on' : 'off') + ' · ' + weatherName(NET.weather).toLowerCase() + ' weather';
+  $('onWait').textContent = 'Waiting for the host to start: ' + trackById(NET.track).name + ' · ' + NET.laps + ' laps · ' + DIFF[NET.diff].name + ' bots · tyres and pit stops ' + (NET.tyres ? 'on' : 'off') + ' · ' + weatherName(NET.weather).toLowerCase() + ' weather' + (NET.drift ? ' · drift mode' : '');
 }
 function wireOnline() {
   $('btnOnline').addEventListener('click', goOnline);
@@ -4817,6 +5790,7 @@ function wireOnline() {
   document.querySelectorAll('#onLaps button').forEach((b) => b.addEventListener('click', () => { NET.laps = +b.dataset.v; broadcastLobby(); }));
   document.querySelectorAll('#onDiff button').forEach((b) => b.addEventListener('click', () => { NET.diff = +b.dataset.v; broadcastLobby(); }));
   document.querySelectorAll('#onTyres button').forEach((b) => b.addEventListener('click', () => { NET.tyres = !!+b.dataset.v; broadcastLobby(); }));
+  document.querySelectorAll('#onDrift button').forEach((b) => b.addEventListener('click', () => { if (!NET.host || NET.racing) return; NET.drift = !!+b.dataset.v; broadcastLobby(); }));
   document.querySelectorAll('#onWeather button').forEach((b) => b.addEventListener('click', () => { if (!NET.host || NET.racing) return; NET.weather = b.dataset.v; broadcastLobby(); }));
 }
 function toastMenu(t) { onlineStatus(t); }
@@ -4952,6 +5926,20 @@ const SFX = {
   lep(v) { if (!this.ctx || v <= 0.02) return; const t = this.ctx.currentTime; [81, 83, 86, 88, 86, 83, 81].forEach((m, i) => this.whistle(m, t + i * 0.09)); this.burst(0.5, 1400, 0.18 * v, 'bandpass', 0.5); },
   clang(v) { if (!this.ctx || v <= 0.02) return; this.tone(1850, 0.5, 'triangle', 0.1 * v); this.tone(2470, 0.4, 'triangle', 0.07 * v, 0.02); this.tone(110, 0.2, 'sine', 0.2 * v); },
   splash() { this.burst(0.3, 900, 0.2, 'bandpass'); },
+  // ---- sounds for the newer powers ----
+  vomit(v) { if (!this.ctx || v <= 0.02) return; this.wobble('sawtooth', 300, 180, 120, 0.9, 700, 2, 14, 30, 0.16 * v); this.burst(0.9, 900, 0.18 * v, 'bandpass', 0.05); },
+  splat(v) { if (!this.ctx || v <= 0.02) return; this.burst(0.18, 700, 0.25 * v, 'lowpass'); this.tone(220, 0.12, 'sine', 0.15 * v, 0, 90); },
+  revUp(v) { if (!this.ctx || v <= 0.02) return; this.tone(90, 0.7, 'sawtooth', 0.14 * v, 0, 420); this.burst(0.5, 1800, 0.12 * v, 'bandpass', 0.2); },
+  kettle(v) { if (!this.ctx || v <= 0.02) return; this.wobble('sine', 1400, 2100, 2300, 1.1, 2200, 6, 9, 60, 0.07 * v); this.burst(1.0, 3000, 0.08 * v, 'highpass'); },
+  hole(v) { if (!this.ctx || v <= 0.02) return; this.tone(160, 1.4, 'sine', 0.25 * v, 0, 38); this.wobble('sawtooth', 70, 55, 40, 1.4, 300, 3, 6, 15, 0.12 * v); },
+  ghost(v) { const k = v == null ? 1 : v; if (!this.ctx || k <= 0.02) return; this.wobble('sine', 520, 760, 400, 1.1, 900, 2, 5, 40, 0.12 * k); },
+  freeze() { if (!this.ctx) return; for (let i = 0; i < 6; i++) this.tone(1800 + Math.random() * 2400, 0.25, 'triangle', 0.05, i * 0.07); this.burst(0.8, 5000, 0.08, 'highpass'); },
+  cookies(v) { if (!this.ctx || v <= 0.02) return; [0, 0.08, 0.16, 0.24].forEach((d, i) => this.tone(900 + i * 160, 0.07, 'square', 0.06 * v, d)); },
+  like() { if (!this.ctx) return; this.tone(988, 0.08, 'triangle', 0.12); this.tone(1319, 0.14, 'triangle', 0.12, 0.07); },
+  jumpscare() { if (!this.ctx) return; this.wobble('sawtooth', 700, 1500, 900, 0.45, 1600, 1, 40, 300, 0.22); this.burst(0.4, 2500, 0.25, 'bandpass'); },
+  hic() { if (!this.ctx) return; this.tone(420, 0.09, 'square', 0.08, 0, 620); this.tone(380, 0.09, 'square', 0.06, 0.6, 560); },
+  glassFall() { if (!this.ctx) return; this.tone(2600, 0.05, 'triangle', 0.08, 0.5); this.tone(2200, 0.06, 'triangle', 0.07, 0.62); this.burst(0.08, 4000, 0.08, 'highpass', 0.5); },
+  pop(v) { if (!this.ctx || v <= 0.02) return; this.tone(520, 0.09, 'sine', 0.14 * v, 0, 900); },
   rainLevel(k) { if (!this.ctx) return; if (!this.rainN) this.rainN = this.loopNoise('highpass', 2600, 0.4); if (Math.abs(k - (this.rainK || 0)) > 0.01) { this.rainK = k; this.rainN.g.gain.setTargetAtTime(k * 0.08, this.ctx.currentTime, 0.2); } },
   // Ela's song: an original, cheerful tune sung by a simple 'ah' voice (formant filters + vibrato)
   voice(m, t, dur, v, out) {
@@ -5181,7 +6169,8 @@ const RACE = {
   buses: [], player: null, firstPass: [], order: [], stateT: 0, lightsOn: 0, goAt: 0, paused: false,
   resetCD: 0, stuckT: 0, hintT: 0, quality: store.get('quality', TOUCH ? 'medium' : 'high'), track: store.get('track', 'anka'), trackTok: 0,
   tyresPref: store.get('tyres', true) !== false, tyres: false, strategy: null,
-  weatherPref: store.get('weather', 'dry'), fcDraft: null
+  weatherPref: store.get('weather', 'dry'), fcDraft: null,
+  driftPref: store.get('drift', false) === true, drift: false
 };
 if (!['dry', 'rain', 'changing'].includes(RACE.weatherPref)) RACE.weatherPref = 'dry';
 if (![3, 6, 10].includes(RACE.laps)) RACE.laps = 6;
@@ -5197,7 +6186,7 @@ const H = {};
 function setT(el, v) { v = String(v); if (el._t !== v) { el._t = v; el.textContent = v; } }
 function setW(el, frac) { const v = Math.round(clamp(frac, 0, 1) * 100) + '%'; if (el._w !== v) { el._w = v; el.style.width = v; } }
 function initHUD() {
-  ['hud', 'hPos', 'hPosOf', 'hLap', 'hTime', 'hLast', 'hBest', 'tLap', 'tLeft', 'hSpeed', 'hMod', 'abilBox', 'hAbName', 'hAbCost', 'hBank', 'hBankLbl', 'hAbFill', 'hAbHint', 'hEffs', 'hDriver', 'hDrvImg', 'hDrvNick', 'hDrvPassive', 'alarm', 'stun', 'sb', 'terms', 'revWarn', 'checkCard', 'chkZone', 'chkMark', 'chkMsg', 'quizCard', 'qzText', 'qzL', 'qzR', 'qzHint', 'brainrot', 'wxBox', 'hWxTxt', 'hWxBar', 'tyreBox', 'hTc', 'hTyre', 'hTyrePct', 'hTplan', 'pitBox', 'hPitBar', 'hPitTxt', 'tBox', 'lights', 'intro', 'introTop', 'introTitle', 'introHand', 'msg', 'toast', 'wrong', 'hint', 'speedfx', 'touch', 'minimap', 'tower'].forEach((id) => { H[id] = $(id); });
+  ['hud', 'hPos', 'hPosOf', 'hLap', 'hTime', 'hLast', 'hBest', 'tLap', 'tLeft', 'hSpeed', 'hMod', 'abilBox', 'hAbName', 'hAbCost', 'hBank', 'hBankLbl', 'hAbFill', 'hAbHint', 'hEffs', 'hDriver', 'hDrvImg', 'hDrvNick', 'hDrvPassive', 'alarm', 'stun', 'sb', 'terms', 'revWarn', 'quizCard', 'qzEye', 'qzText', 'qzL', 'qzR', 'qzHint', 'brainrot', 'wheelBox', 'hWheel', 'hWheelPct', 'frost', 'darkfx', 'glasses', 'jumpscare', 'glitchfx', 'wxBox', 'hWxTxt', 'hWxBar', 'tyreBox', 'hTc', 'hTyre', 'hTyrePct', 'hTplan', 'pitBox', 'hPitBar', 'hPitTxt', 'tBox', 'lights', 'intro', 'introTop', 'introTitle', 'introHand', 'msg', 'toast', 'wrong', 'hint', 'speedfx', 'touch', 'minimap', 'tower'].forEach((id) => { H[id] = $(id); });
   H.rows = [];
   for (let i = 0; i < 6; i++) {
     const r = document.createElement('div'); r.className = 'trow';
@@ -5263,7 +6252,7 @@ function updateHUD(dt) {
   const p = RACE.player; if (!p) return;
   const kmh = Math.round(Math.max(0, p.fwd) * 3.6);
   setT(H.hSpeed, kmh);
-  // ability panel: students (or Ali's sweet meter), whether the ability can be used, how long it still runs
+  // ability panel: students (or Ali's satiety meter), whether the ability can be used, how long it still runs
   const info = abilityInfo(p);
   setT(H.hAbName, info.name); setT(H.hAbCost, info.cost);
   setT(H.hBank, info.big); setT(H.hBankLbl, info.unit);
@@ -5285,6 +6274,16 @@ function updateHUD(dt) {
     else if (!H.pitBox.hidden) H.pitBox.hidden = true;
     const boxOn = !!p.boxReq && !p.pit;
     if (H.tBox._on !== boxOn) { H.tBox._on = boxOn; H.tBox.classList.toggle('held', boxOn); }
+  }
+  // the Wheel Bar shows up when a bite has taken from it
+  const wh = Math.round(p.wheel);
+  if (H.wheelBox.hidden !== (wh >= 100)) H.wheelBox.hidden = wh >= 100;
+  if (wh < 100) { setW(H.hWheel, wh / 100); setT(H.hWheelPct, wh + '%'); }
+  // the Ghostly Sisters: the sister at the wheel, big and clear
+  if (drvId(p) === 'sisters' && H.hDriver._sis !== p.sis) {
+    H.hDriver._sis = p.sis; const S = CH.sisters.sisters[p.sis];
+    H.hDrvImg.src = SISTER_PHOTO[p.sis]; H.hDrvNick.textContent = S.name + ' drives'; H.hDriver.style.setProperty('--dc', S.color);
+    H.hDriver.classList.remove('swap'); void H.hDriver.offsetWidth; H.hDriver.classList.add('swap');
   }
   if (WX.mode !== 'dry') {
     const band = wetBand(WX.wet);
@@ -5334,12 +6333,12 @@ function startRace() {
   if (NET.on) return;   // online races start from the lobby
   fadeTo(() => {
     if (TDEF.id !== RACE.track) { buildWorld(trackById(RACE.track)); afterWorld(); }
-    RACE.tyres = RACE.tyresPref; setPitOpen(RACE.tyres);
+    RACE.tyres = RACE.tyresPref; setPitOpen(RACE.tyres); RACE.drift = RACE.driftPref;
     setForecast(draftForecast()); RACE.fcDraft = null;   // the next race gets a new forecast
     const p = RACE.buses[RACE.busIdx];
     RACE.player = p;
     RACE.buses.forEach((b) => { b.isPlayer = b === p; b.human = b === p; b.remote = false; b.owner = null; b.net = null; });
-    const chosen = DRIVERS[RACE.drvIdx], pool = shuffle(DRIVERS.filter((d) => d !== chosen));
+    const chosen = DRIVERS[RACE.drvIdx], pool = shuffle(DRIVERS.filter((d) => d !== chosen && botDriver(d)));   // bots never drive Sarp
     let pi = 0;
     RACE.buses.forEach((b) => setDriver(b, b === p ? chosen : pool[pi++]));
     const others = RACE.buses.filter((b) => b !== p);
@@ -5362,17 +6361,17 @@ function startRace() {
 }
 // shared by single races and online races, once every bus is on the grid
 function finishRaceSetup(p, chosen) {
-  RACE.firstPass = []; RACE.order = []; RACE.t = 0; RACE.resetCD = 0; RACE.stuckT = 0; RACE.extChecks = [];
+  RACE.firstPass = []; RACE.order = []; RACE.t = 0; RACE.resetCD = 0; RACE.stuckT = 0;
   for (const s of W.stops) { s.got.clear(); s.anim = -1; s.backAt = 0; s.kids.forEach((k) => { k.visible = true; k.position.copy(k.userData.home); k.scale.setScalar(k.userData.sc); }); }
   CAM.yaw = p.yaw; CAM.hint = TRACK.globalNearest(p.x, p.z); CAM.lift = 0; CAM.ox = null;
   PERF.win = PERF.sum = PERF.n = 0; PERF.ceil = 1; PERF.slow = 0; PERF.good = 0;
   H.introTop.textContent = (NET.racing ? 'Online · ' : 'Round ' + (TRACKS.indexOf(TDEF) + 1) + ' · ') + TDEF.place + ' · ' + RACE.laps + (RACE.laps === 1 ? ' lap' : ' laps') + ' · ' + (TRACK.L / 1000).toFixed(2) + ' km';
   H.introTitle.textContent = TDEF.gp;
-  H.hDrvImg.src = chosen.photo; H.hDriver.style.setProperty('--dc', chosen.color); H.hDrvNick.textContent = chosen.nick;
-  H.hDrvPassive.textContent = chosen.passive1.name + ' · ' + chosen.passive2.name;
-  H.effHtml = ''; H.hEffs.innerHTML = '';
+  H.hDrvImg.src = chosen.photo; H.hDriver.style.setProperty('--dc', chosen.color); H.hDrvNick.textContent = chosen.nick; H.hDriver._sis = '';
+  H.hDrvPassive.textContent = chosen.passive1.name + ' · ' + chosen.passive2.name + (RACE.drift ? ' · drift mode' : '');
+  H.effHtml = ''; H.hEffs.innerHTML = ''; H.wheelBox.hidden = true;
   H.tyreBox.hidden = !RACE.tyres; H.tBox.hidden = !(RACE.tyres && TOUCH); H.pitBox.hidden = true; H.wxBox.hidden = WX.mode === 'dry';
-  clearAbilWorld(); clearPlayerFX(); SFX.stopSong();
+  clearAbilWorld(); clearPlayerFX(); SFX.stopSong(); initSisters();
   showScreen(null);
   setState('intro');
 }
@@ -5440,10 +6439,9 @@ function pickups() {
       if (ds < 4.5 + b.halfL * 0.6 && Math.abs(b.q.d - st.lat) < 2.2 + b.halfW) {
         st.got.set(b, b.lap);
         pickupStudents(b, st.kids.length, st);
-        if (b.isPlayer) {
+        if (b.isPlayer && drvId(b) !== 'ali') {   // Ali leaves the students where they are
           st.anim = 0; SFX.pickup();
-          if (drvId(b) === 'ali') toast('Nom nom! Sweet meter ' + Math.round(b.meter) + '%');
-          else toast('+' + st.kids.length + ' students · ' + b.bank + ' in total');
+          toast('+' + st.kids.length + ' students · ' + b.bank + ' in total');
         }
       }
     }
@@ -5541,7 +6539,7 @@ function switchTrack(id, persist, done) {
 }
 function afterWorld() { buildMinimap(); CAM.hint = 0; CAM.ox = null; warmUp(); }
 function assignLineupDrivers() {
-  const chosen = DRIVERS[RACE.drvIdx], others = DRIVERS.filter((d) => d !== chosen);
+  const chosen = DRIVERS[RACE.drvIdx], others = DRIVERS.filter((d) => d !== chosen && botDriver(d));
   let k = 0;
   RACE.buses.forEach((b, i) => setDriver(b, i === RACE.busIdx ? chosen : others[k++]));
 }
@@ -5560,7 +6558,7 @@ function renderDriver() {
   const d = DRIVERS[RACE.drvIdx];
   document.querySelectorAll('#drvGrid .drv').forEach((el, i) => el.setAttribute('aria-pressed', String(i === RACE.drvIdx)));
   $('drvDetail').style.setProperty('--dc', d.color);
-  $('dImg').src = d.photo; $('dImg').alt = d.name; $('dName').textContent = d.name; $('dNick').textContent = d.nick;
+  $('dImg').src = d.photo; $('dImg').alt = d.name; $('dName').textContent = d.name; $('dNick').textContent = d.nick === d.name ? '' : d.nick;
   const t = drvText(d);
   $('dAbName').textContent = t.ab.name; $('dAbCost').textContent = t.ab.cost; $('dAbDesc').textContent = t.ab.desc;
   $('dP1Name').textContent = t.p1.name; $('dP1Desc').textContent = t.p1.desc;
@@ -5605,6 +6603,7 @@ function renderSelect() {
   document.querySelectorAll('#optDiff button').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.v === RACE.diff)));
   document.querySelectorAll('#optTyres button').forEach((b) => b.setAttribute('aria-pressed', String(!!+b.dataset.v === RACE.tyresPref)));
   document.querySelectorAll('#optWeather button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === RACE.weatherPref)));
+  document.querySelectorAll('#optDrift button').forEach((b) => b.setAttribute('aria-pressed', String(!!+b.dataset.v === RACE.driftPref)));
   setPitOpen(RACE.tyresPref);
 }
 function pickBus(delta) { RACE.busIdx = (RACE.busIdx + delta + BUSES.length) % BUSES.length; store.set('bus', RACE.busIdx); renderSelect(); SFX.tone(700, 0.06, 'square', 0.05); }
@@ -5643,7 +6642,7 @@ function renderResults() {
     let t;
     if (b.finished) t = (i === 0 || !lead.finished ? fmt(b.finishTime) : fmt(b.finishTime) + ' <small style="color:var(--ink-3)">+' + (b.finishTime - lead.finishTime).toFixed(3) + '</small>') + (b.finishPen ? ' <small style="color:#ff8c7a">incl. ' + b.finishPen + ' s penalty</small>' : '');
     else t = '<span class="run">Running · lap ' + clamp(b.lap, 1, RACE.laps) + '/' + RACE.laps + '</span>';
-    return '<tr class="' + (b === p ? 'me' : '') + '"><td class="p">' + (i + 1) + '</td><td><span class="nm"><i style="background:' + b.def.hud + '"></i><span>' + (b.driver ? b.driver.nick + ' \u00b7 ' : '') + b.def.brand + ' ' + b.def.model + ' <small>No. ' + b.def.num + (b === p ? ' · you' : '') + '</small></span></span></td><td>' + t + '</td><td>' + (isFinite(b.best) ? fmt(b.best) : '—') + '</td><td>' + (RACE.tyres ? stintChips(b) : '—') + '</td><td>' + b.students + '</td></tr>';
+    return '<tr class="' + (b === p ? 'me' : '') + '"><td class="p">' + (i + 1) + '</td><td><span class="nm"><i style="background:' + b.def.hud + '"></i><span>' + (b.driver ? b.driver.nick + ' \u00b7 ' : '') + b.def.brand + ' ' + b.def.model + ' <small>No. ' + b.def.num + (b === p ? ' · you' : '') + '</small></span></span></td><td>' + t + '</td><td>' + (isFinite(b.best) ? fmt(b.best) : '—') + '</td><td>' + (RACE.tyres ? stintChips(b) : '—') + '</td><td>' + (drvId(b) === 'ali' ? '—' : b.students) + '</td></tr>';
   }).join('');
 }
 
@@ -5709,6 +6708,7 @@ function onKeyPress(e) {
   const ae = document.activeElement;
   if ((code === 'Enter' || code === 'Space') && ae && ae.tagName === 'BUTTON' && !ae.closest('#touch')) return;
   if ((code === 'ShiftLeft' || code === 'ShiftRight' || code === 'KeyN') && s === 'race') { tryPlayerAbility(); return; }
+  if (code === 'KeyX' && s === 'race' && RACE.player && drvId(RACE.player) === 'sarp') { closeNewestPost(); return; }   // Sarp: close a post
   if (s === 'driver') {
     if (code === 'ArrowLeft' || code === 'KeyA' || code === 'ArrowUp') pickDriver(RACE.drvIdx - 1);
     else if (code === 'ArrowRight' || code === 'KeyD' || code === 'ArrowDown') pickDriver(RACE.drvIdx + 1);
@@ -5883,6 +6883,7 @@ function updateCamera(dt) {
         clampToCircuit(V1);
       }
       applyCam(dt, V1, V2, 1);
+      sarpCamFX(dt);   // Sarp's tilted, wobbly or glitching camera
       const sr = clamp(p.fwd / p.st.vmax, 0, 1.3);
       CAM.fov = lerp(CAM.fov, 62 + sr * 9 + (p.boosting ? 8 : 0), k1(3, dt)); setFov(CAM.fov + portrait);
     }
@@ -5964,6 +6965,7 @@ function wireUI() {
   $('btnStratBack').addEventListener('click', closeStrategy);
   document.querySelectorAll('#optTyres button').forEach((b) => b.addEventListener('click', () => { RACE.tyresPref = !!+b.dataset.v; store.set('tyres', RACE.tyresPref); renderSelect(); }));
   document.querySelectorAll('#optWeather button').forEach((b) => b.addEventListener('click', () => { RACE.weatherPref = b.dataset.v; store.set('weather', RACE.weatherPref); renderSelect(); }));
+  document.querySelectorAll('#optDrift button').forEach((b) => b.addEventListener('click', () => { RACE.driftPref = !!+b.dataset.v; store.set('drift', RACE.driftPref); renderSelect(); }));
   $('btnSelBack').addEventListener('click', goDriver);
   document.querySelectorAll('#optLaps button').forEach((b) => b.addEventListener('click', () => { RACE.laps = +b.dataset.v; store.set('laps', RACE.laps); renderSelect(); }));
   document.querySelectorAll('#optDiff button').forEach((b) => b.addEventListener('click', () => { RACE.diff = +b.dataset.v; store.set('diff', RACE.diff); renderSelect(); }));
@@ -5982,9 +6984,10 @@ function wireUI() {
   $('btnAgain').addEventListener('click', () => { if (NET.on) hostBackToLobby(); else startRace(); });
   $('btnChange').addEventListener('click', goDriver);
   const grid = $('drvGrid');
+  grid.style.setProperty('--cols', Math.min(8, DRIVERS.length <= 9 ? DRIVERS.length : Math.ceil(DRIVERS.length / 2)));   // any number of drivers: two rows when there are many
   DRIVERS.forEach((d, i) => {
     const el = document.createElement('button'); el.type = 'button'; el.className = 'drv'; el.id = 'drv' + i; el.style.setProperty('--dc', d.color); el.setAttribute('aria-pressed', 'false');
-    el.innerHTML = '<img alt=""><b></b><span></span>'; el.children[0].src = d.photo; el.children[0].alt = d.name; nickNodes(el.children[1], d.nick); el.children[2].textContent = d.name;
+    el.innerHTML = '<img alt=""><b></b><span></span>'; el.children[0].src = d.photo; el.children[0].alt = d.name; nickNodes(el.children[1], d.nick); el.children[2].textContent = d.name === d.nick ? (d.noBot ? 'players only' : '') : d.name;
     el.addEventListener('click', () => pickDriver(i)); grid.appendChild(el);
   });
   $('btnDrvNext').addEventListener('click', goSelect);
@@ -5993,13 +6996,13 @@ function wireUI() {
   $('btnMenu').addEventListener('click', goTitle);
   ['tL', 'tR', 'tGas', 'tBrake', 'tBoost', 'tDrift'].forEach((id, i) => bindTouch(id, ['left', 'right', 'up', 'down', 'boost', 'hb'][i], id === 'tBoost' ? tryPlayerAbility : null));
   $('tBox').addEventListener('pointerdown', (e) => { e.preventDefault(); SFX.init(); toggleBox(); });
-  $('checkCard').addEventListener('pointerdown', (e) => { e.preventDefault(); pressCheck(); });
   $('gl').addEventListener('pointerdown', () => { SFX.init(); if (RACE.state === 'intro' && !NET.racing) setState('countdown'); });
   document.addEventListener('visibilitychange', () => { if (document.hidden && !NET.racing && (RACE.state === 'race' || RACE.state === 'countdown')) togglePause(true); });
   wireOnline();
   addEventListener('resize', resize);
   $('aboutList').innerHTML = BUSES.map((b) => '<li><b>' + b.num + '</b><span>' + b.brand + ' ' + b.model + ' <em>— ' + b.tag + '</em></span></li>').join('');
-  if (TOUCH) { document.body.classList.add('touch'); $('titleFoot').innerHTML = 'Pick one of nine drivers, one of six school buses and one of four circuits. Pick up students at the yellow bus stops (5 per stop) and spend them on your driver\'s ability: tap ABILITY. Race online to race your friends, each on their own phone.'; }
+  $('titleFoot').innerHTML = $('titleFoot').innerHTML.replace(/one of \w+ drivers/, 'one of ' + DRIVERS.length + ' drivers');
+  if (TOUCH) { document.body.classList.add('touch'); $('titleFoot').innerHTML = 'Pick one of ' + DRIVERS.length + ' drivers, one of six school buses and one of four circuits. Pick up students at the yellow bus stops (5 per stop) and spend them on your driver\'s ability: tap ABILITY. Race online to race your friends, each on their own phone.'; }
 }
 async function boot(saved) {
   if (saved && typeof saved === 'object') {
